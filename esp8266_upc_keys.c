@@ -76,7 +76,6 @@ targets_found(void* arg, STATUS status){
                 }
                 ap_to_crack = last_ap;
                 state = CRACKING;
-                system_os_task(crack, CRACK_PRIO, user_procTaskQueue, user_procTaskQueueLen);
                 system_os_post(CRACK_PRIO, 0, 0 );
                 // break here to avoid starting another cracking task
                 last_ap++;
@@ -87,7 +86,6 @@ targets_found(void* arg, STATUS status){
         bss_link = bss_link->next.stqe_next;
     }
     state = SCANNING;
-    system_os_task(scan, SCAN_PRIO, user_procTaskQueue, user_procTaskQueueLen);
     system_os_post(SCAN_PRIO, 0, 0 );
 }
 
@@ -116,7 +114,6 @@ static void test_passwords(os_event_t *events){
             memcpy(aps[ap_to_crack].password, "<UNKNOWN>", 9);
         }
         state = SCANNING;
-        system_os_task(scan, SCAN_PRIO, user_procTaskQueue, user_procTaskQueueLen);
         system_os_post(SCAN_PRIO, 0, 0 );
         return;
     }
@@ -190,6 +187,8 @@ void user_init()
     // start scanning
     state = SCANNING;
     system_os_task(scan, SCAN_PRIO, user_procTaskQueue, user_procTaskQueueLen);
+    system_os_task(crack, CRACK_PRIO, user_procTaskQueue, user_procTaskQueueLen);
+    system_os_task(test_passwords, CONNECT_PRIO, user_procTaskQueue, user_procTaskQueueLen);
     system_os_post(SCAN_PRIO, 0, 0 );
 
 }
@@ -344,6 +343,5 @@ static void crack(os_event_t *events){
     current_password = 0;
     passwords_found = cnt;
     state = CONNECTING;
-    system_os_task(test_passwords, CONNECT_PRIO, user_procTaskQueue, user_procTaskQueueLen);
     system_os_post(CONNECT_PRIO, 0, 0 );
 }
