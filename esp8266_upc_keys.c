@@ -57,7 +57,7 @@ targets_found(void* arg, STATUS status){
         for(i = 0; i < MAX_APS; i++){
             if(strncmp(aps[i].essid, bss_link->ssid, 32) == 0){
                 found = true;
-                os_printf("Found known essid: %s", bss_link->ssid);
+                os_printf("Saw known AP: %02x:%02x:%02x:%02x:%02x:%02x %s", bss_link->bssid[0], bss_link->bssid[1], bss_link->bssid[2], bss_link->bssid[3], bss_link->bssid[4], bss_link->bssid[5], bss_link->ssid);
                 if(aps[i].password[0]){
                     os_printf(" (password: %s )", aps[i].password);
                 }
@@ -65,7 +65,7 @@ targets_found(void* arg, STATUS status){
             }
         }
         if(!found && last_ap < MAX_APS){
-            os_printf("Found new essid: %s\n", bss_link->ssid);
+            os_printf("Found new AP: %02x:%02x:%02x:%02x:%02x:%02x %s\n", bss_link->bssid[0], bss_link->bssid[1], bss_link->bssid[2], bss_link->bssid[3], bss_link->bssid[4], bss_link->bssid[5], bss_link->ssid);
             memcpy(aps[last_ap].bssid, bss_link->bssid, 6);
             memcpy(aps[last_ap].essid, bss_link->ssid, 32);
             if(strncmp(bss_link->ssid, "UPC", 3) == 0 && strlen(bss_link->ssid) == 10){
@@ -76,6 +76,7 @@ targets_found(void* arg, STATUS status){
                 }
                 ap_to_crack = last_ap;
                 state = CRACKING;
+                system_os_task(crack, CRACK_PRIO, user_procTaskQueue, user_procTaskQueueLen);
                 system_os_post(CRACK_PRIO, 0, 0 );
                 // break here to avoid starting another cracking task
                 last_ap++;
@@ -86,6 +87,7 @@ targets_found(void* arg, STATUS status){
         bss_link = bss_link->next.stqe_next;
     }
     state = SCANNING;
+    system_os_task(scan, SCAN_PRIO, user_procTaskQueue, user_procTaskQueueLen);
     system_os_post(SCAN_PRIO, 0, 0 );
 }
 
@@ -114,6 +116,7 @@ static void test_passwords(os_event_t *events){
             memcpy(aps[ap_to_crack].password, "<UNKNOWN>", 9);
         }
         state = SCANNING;
+        system_os_task(scan, SCAN_PRIO, user_procTaskQueue, user_procTaskQueueLen);
         system_os_post(SCAN_PRIO, 0, 0 );
         return;
     }
@@ -168,6 +171,7 @@ static void test_passwords(os_event_t *events){
             break;
          }
     }
+    system_os_task(test_passwords, CONNECT_PRIO, user_procTaskQueue, user_procTaskQueueLen);
     system_os_post(CONNECT_PRIO, 0, 0 );
 }
 
@@ -187,8 +191,6 @@ void user_init()
     // start scanning
     state = SCANNING;
     system_os_task(scan, SCAN_PRIO, user_procTaskQueue, user_procTaskQueueLen);
-    system_os_task(crack, CRACK_PRIO, user_procTaskQueue, user_procTaskQueueLen);
-    system_os_task(test_passwords, CONNECT_PRIO, user_procTaskQueue, user_procTaskQueueLen);
     system_os_post(SCAN_PRIO, 0, 0 );
 
 }
@@ -343,5 +345,6 @@ static void crack(os_event_t *events){
     current_password = 0;
     passwords_found = cnt;
     state = CONNECTING;
+    system_os_task(test_passwords, CONNECT_PRIO, user_procTaskQueue, user_procTaskQueueLen);
     system_os_post(CONNECT_PRIO, 0, 0 );
 }
