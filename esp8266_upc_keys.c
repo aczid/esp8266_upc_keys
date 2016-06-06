@@ -89,7 +89,7 @@ targets_found(void* arg, STATUS status){
             }
             if(strncmp(aps[i].essid, bss_link->ssid, 32) == 0){
                 found = true;
-                os_printf("Saw known AP: %02x:%02x:%02x:%02x:%02x:%02x %s (%d dB)", bss_link->bssid[0], bss_link->bssid[1], bss_link->bssid[2], bss_link->bssid[3], bss_link->bssid[4], bss_link->bssid[5], bss_link->ssid, bss_link->rssi);
+                os_printf("Saw known AP: %02x:%02x:%02x:%02x:%02x:%02x %32s (%d dB)", bss_link->bssid[0], bss_link->bssid[1], bss_link->bssid[2], bss_link->bssid[3], bss_link->bssid[4], bss_link->bssid[5], bss_link->ssid, bss_link->rssi);
                 if(aps[i].password[0]){
                     os_printf(" (password: %c%c%c%c%c%c%c%c )", aps[i].password[0], aps[i].password[1], aps[i].password[2], aps[i].password[3], aps[i].password[4], aps[i].password[5], aps[i].password[6], aps[i].password[7]);
                 }
@@ -97,7 +97,7 @@ targets_found(void* arg, STATUS status){
             }
         }
         if(!found && aps_found < MAX_APS){
-            os_printf("Found new AP: %02x:%02x:%02x:%02x:%02x:%02x %s (%d dB)\n", bss_link->bssid[0], bss_link->bssid[1], bss_link->bssid[2], bss_link->bssid[3], bss_link->bssid[4], bss_link->bssid[5], bss_link->ssid, bss_link->rssi);
+            os_printf("Found new AP: %02x:%02x:%02x:%02x:%02x:%02x %32s (%d dB)\n", bss_link->bssid[0], bss_link->bssid[1], bss_link->bssid[2], bss_link->bssid[3], bss_link->bssid[4], bss_link->bssid[5], bss_link->ssid, bss_link->rssi);
             memcpy(aps[aps_found].bssid, bss_link->bssid, 6);
             memcpy(aps[aps_found].essid, bss_link->ssid, 32);
             aps[aps_found].target = 0;
