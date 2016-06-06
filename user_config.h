@@ -1,6 +1,6 @@
 #define MAX_APS                 512
 #define MAX_CANDIDATE_PASSWORDS 32
-#define MAX_TRIES               10
+#define MAX_TRIES               2
 
 #define PRIO_SCAN  USER_TASK_PRIO_2
 #define PRIO_CRACK USER_TASK_PRIO_0

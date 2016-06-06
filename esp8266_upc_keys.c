@@ -46,6 +46,7 @@ scan(os_event_t *events)
 {
     if(state == SCANNING){
         if(aps_found == MAX_APS){
+            os_printf("Flushing AP buffer...\n");
             // flush AP buffer (found passwords will be re-loaded from flash)
             aps_found = 0;
             memset(aps, 0x0, sizeof(aps));
