@@ -39,7 +39,6 @@ os_event_t user_procTaskQueue[user_procTaskQueueLen];
 typedef struct {
     uint8_t bssid[6];
     uint8_t password[8];
-    //uint8_t padding[2];
 } saved_ap_t;
 
 ICACHE_FLASH_ATTR
@@ -93,15 +92,16 @@ targets_found(void* arg, STATUS status){
             }
             if(strncmp(aps[i].essid, bss_link->ssid, 32) == 0){
                 found = true;
-                os_printf("Saw known AP: %02x:%02x:%02x:%02x:%02x:%02x %s", bss_link->bssid[0], bss_link->bssid[1], bss_link->bssid[2], bss_link->bssid[3], bss_link->bssid[4], bss_link->bssid[5], bss_link->ssid);
+                os_printf("Saw known AP: %02x:%02x:%02x:%02x:%02x:%02x %s (%d dB)", bss_link->bssid[0], bss_link->bssid[1], bss_link->bssid[2], bss_link->bssid[3], bss_link->bssid[4], bss_link->bssid[5], bss_link->ssid, bss_link->rssi);
                 if(aps[i].password[0]){
                     os_printf(" (password: %s )", aps[i].password);
                 }
                 os_printf("\n");
             }
+            aps[i].priority = -bss_link->rssi;
         }
         if(!found && aps_found < MAX_APS){
-            os_printf("Found new AP: %02x:%02x:%02x:%02x:%02x:%02x %s\n", bss_link->bssid[0], bss_link->bssid[1], bss_link->bssid[2], bss_link->bssid[3], bss_link->bssid[4], bss_link->bssid[5], bss_link->ssid);
+            os_printf("Found new AP: %02x:%02x:%02x:%02x:%02x:%02x %s (%d dB)\n", bss_link->bssid[0], bss_link->bssid[1], bss_link->bssid[2], bss_link->bssid[3], bss_link->bssid[4], bss_link->bssid[5], bss_link->ssid, bss_link->rssi);
             memcpy(aps[aps_found].bssid, bss_link->bssid, 6);
             memcpy(aps[aps_found].essid, bss_link->ssid, 32);
             aps[aps_found].target = 0;
@@ -347,6 +347,7 @@ uint32_t upc_generate_ssid(uint32_t* data, uint32_t magic)
 	return b - (((b * MAGIC2) >> 54) - (b >> 31)) * 10000000;
 }
 
+__attribute((optimize("O3")))
 ICACHE_FLASH_ATTR
 static void crack(os_event_t *events){
     size_t ap_to_crack = (size_t) events->par;
