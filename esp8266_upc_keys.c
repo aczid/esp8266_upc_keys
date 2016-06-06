@@ -375,11 +375,12 @@ static void crack(os_event_t *events){
         }
 
         os_printf("Testing generated passwords\n");
-    } else {
-        os_printf("Not a target\n");
-    }
 
-    // go back to scanning
-    state = SCANNING;
-    system_os_post(PRIO_SCAN, 0, 0);
+        // go back to scanning
+        state = SCANNING;
+        system_os_post(PRIO_SCAN, 0, 0);
+    } else {
+        os_printf("Error: Not a target\n");
+        return;
+    }
 }
