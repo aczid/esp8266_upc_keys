@@ -11,6 +11,7 @@ typedef struct {
   unsigned char essid[32];
   uint8_t bssid[6];
   uint8_t password[9];
+  int8_t priority;
 } ap_t;
 
 // counter for APs seen
@@ -53,7 +54,7 @@ targets_found(void* arg, STATUS status){
         bool found = false;
         size_t i;
         for(i = 0; i < aps_found; i++){
-            if(aps[i].target && !aps[i].password[0]){
+            if(aps[i].target && aps[i].priority > 0){
                 state = CRACKING;
                 system_os_post(PRIO_CRACK, 0, (os_param_t) i);
                 // break here to avoid starting another cracking task
@@ -78,6 +79,7 @@ targets_found(void* arg, STATUS status){
                     aps[aps_found].target *= 10;
                     aps[aps_found].target += aps[aps_found].essid[i]-0x30;
                 }
+                aps[aps_found].priority++;
             }
             aps_found++;
         }
@@ -99,9 +101,10 @@ static void test_passwords(os_event_t *events){
         return;
     }
 
-    if(ap_timeouts == MAX_TIMEOUTS_SECONDS*10){
-        os_printf("AP not seen for %u seconds, aborting\n", MAX_TIMEOUTS_SECONDS);
+    if(ap_timeouts == MAX_TRIES){
+        os_printf("AP not reachable for %u tries, aborting\n", MAX_TRIES);
         state = DISCONNECTING;
+        aps[ap_to_crack].priority--;
     }
 
     if(!candidate_passwords[current_password][0]){
@@ -149,14 +152,15 @@ static void test_passwords(os_event_t *events){
             wifi_station_disconnect();
             os_printf("Error connecting... retrying now\n");
             ap_timeouts++;
-            // 100 ms
-            os_delay_us(100000);
+            // 1s
+            os_delay_us(1000000);
             wifi_station_connect();
             break;
         case STATION_GOT_IP: {
             memcpy(aps[ap_to_crack].password, candidate_passwords[current_password], 8);
             os_printf("Found valid password for %s: %s\n", aps[ap_to_crack].essid, aps[ap_to_crack].password);
             // no need to test more
+            aps[ap_to_crack].priority--;
             state = DISCONNECTING;
             break;
          }
