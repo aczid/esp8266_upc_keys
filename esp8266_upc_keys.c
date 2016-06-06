@@ -8,10 +8,10 @@
 #include "user_interface.h"
 
 typedef struct {
-    uint32_t target;
     uint8_t essid[32];
     uint8_t bssid[6];
     uint8_t password[8];
+    uint32_t target;
     char *candidate_passwords;
     size_t current_password;
 } ap_t;
@@ -37,7 +37,7 @@ os_event_t user_procTaskQueue[user_procTaskQueueLen];
 
 typedef struct {
     uint8_t bssid[6];
-    uint8_t password[8];
+    uint8_t password[9];
 } saved_ap_t;
 
 ICACHE_FLASH_ATTR
@@ -92,7 +92,7 @@ targets_found(void* arg, STATUS status){
                 found = true;
                 os_printf("Saw known AP: %02x:%02x:%02x:%02x:%02x:%02x %32s (%d dB)", bss_link->bssid[0], bss_link->bssid[1], bss_link->bssid[2], bss_link->bssid[3], bss_link->bssid[4], bss_link->bssid[5], bss_link->ssid, bss_link->rssi);
                 if(aps[i].password[0]){
-                    os_printf(" (password: %c%c%c%c%c%c%c%c )", aps[i].password[0], aps[i].password[1], aps[i].password[2], aps[i].password[3], aps[i].password[4], aps[i].password[5], aps[i].password[6], aps[i].password[7]);
+                    os_printf(" (password: %s )", aps[i].password);
                 }
                 os_printf("\n");
             }
@@ -341,6 +341,7 @@ uint32_t mangle(uint32_t *pp)
 	return b * (pp[1] * 100 + pp[2] * 10 + pp[0]);
 }
 
+__attribute((optimize("O3")))
 ICACHE_FLASH_ATTR
 uint32_t upc_generate_ssid(uint32_t* data, uint32_t magic)
 {
