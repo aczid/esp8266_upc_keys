@@ -45,6 +45,11 @@ static void
 scan(os_event_t *events)
 {
     if(state == SCANNING){
+        if(aps_found == MAX_APS){
+            // flush AP buffer (found passwords will be re-loaded from flash)
+            aps_found = 0;
+            memset(aps, 0x0, sizeof(aps));
+        }
         state = TARGETING;
         wifi_station_scan(NULL, targets_found);
     } else {
