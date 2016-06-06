@@ -48,8 +48,7 @@ typedef struct {
 
 ICACHE_FLASH_ATTR
 static void
-scan(os_event_t *events)
-{
+scan(os_event_t *events){
     if(state == SCANNING){
         if(aps_found == MAX_APS){
             printf("Flushing AP buffer...\n");
@@ -443,6 +442,7 @@ static void crack(os_event_t *events){
         }
 
         printf("Testing generated passwords\n");
+        GPIO_OUTPUT_SET(LED_PIN, 1);
 
         // go back to scanning
         state = SCANNING;
