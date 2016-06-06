@@ -252,11 +252,10 @@ static void test_passwords(os_event_t *events){
 ICACHE_FLASH_ATTR
 void user_init()
 {
-#ifdef MODE_HEADLESS
     // set up LED
     gpio_init();
     GPIO_OUTPUT_SET(LED_PIN, 1);
-#else
+#ifndef MODE_HEADLESS
     uart_init(115200, 115200);
     os_delay_us(100);
 #endif
