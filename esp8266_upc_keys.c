@@ -94,7 +94,7 @@ targets_found(void* arg, STATUS status){
                 found = true;
                 os_printf("Saw known AP: %02x:%02x:%02x:%02x:%02x:%02x %s (%d dB)", bss_link->bssid[0], bss_link->bssid[1], bss_link->bssid[2], bss_link->bssid[3], bss_link->bssid[4], bss_link->bssid[5], bss_link->ssid, bss_link->rssi);
                 if(aps[i].password[0]){
-                    os_printf(" (password: %s )", aps[i].password);
+                    os_printf(" (password: %c%c%c%c%c%c%c%c )", aps[i].password[0], aps[i].password[1], aps[i].password[2], aps[i].password[3], aps[i].password[4], aps[i].password[5], aps[i].password[6], aps[i].password[7]);
                 }
                 os_printf("\n");
             }
