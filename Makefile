@@ -1,5 +1,5 @@
 CC = xtensa-lx106-elf-gcc
-CFLAGS = -I. -mlongcalls -Os
+CFLAGS = -I. -mlongcalls -O3
 LDLIBS = -nostdlib -Wl,--start-group -lmain -lnet80211 -lwpa -llwip -lpp -lphy -Wl,--end-group -lgcc
 LDFLAGS = -Teagle.app.v6.ld
 
@@ -17,7 +17,7 @@ saved_passwords.bin:
 	perl -e 'print "\xff"x0x1000' > $@
 
 flash: esp8266_upc_keys-0x00000.bin esp8266_upc_keys-0x40000.bin saved_passwords.bin
-	#esptool.py read_flash 0x3c000 0x1000 saved_passwords.bin
+	esptool.py read_flash 0x3c000 0x1000 saved_passwords.bin
 	esptool.py write_flash 0 esp8266_upc_keys-0x00000.bin 0x40000 esp8266_upc_keys-0x40000.bin 0x3c000 saved_passwords.bin
 
 get_saved_passwords:
