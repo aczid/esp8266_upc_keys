@@ -314,9 +314,9 @@ uart_init(UartBautRate uart0_br, UartBautRate uart1_br)
     
     UartDev.baut_rate = uart0_br;
     uart_config(UART0);
-    UartDev.baut_rate = uart1_br;
-    uart_config(UART1);
-    ETS_UART_INTR_ENABLE();
+    //UartDev.baut_rate = uart1_br;
+    //uart_config(UART1);
+    //ETS_UART_INTR_ENABLE();
     
     #if UART_BUFF_EN
     pTxBuffer = Uart_Buf_Init(UART_TX_BUFFER_SIZE);
