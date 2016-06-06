@@ -84,11 +84,11 @@ targets_found(void* arg, STATUS status){
         bool found = false;
         size_t i;
         for(i = 0; i < aps_found; i++){
-            if(aps[i].target && bss_link->rssi > highest_priority){
-                highest_priority = bss_link->rssi;
-                ap_to_crack = i;
-            }
             if(strncmp(aps[i].essid, bss_link->ssid, 32) == 0){
+                if(aps[i].target && bss_link->rssi > highest_priority){
+                    highest_priority = bss_link->rssi;
+                    ap_to_crack = i;
+                }
                 found = true;
                 os_printf("Saw known AP: %02x:%02x:%02x:%02x:%02x:%02x %32s (%d dB)", bss_link->bssid[0], bss_link->bssid[1], bss_link->bssid[2], bss_link->bssid[3], bss_link->bssid[4], bss_link->bssid[5], bss_link->ssid, bss_link->rssi);
                 if(aps[i].password[0]){
