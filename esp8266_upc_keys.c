@@ -173,23 +173,21 @@ static void test_passwords(os_event_t *events){
         state = DISCONNECTING;
     }
 
-    if(state == CONNECTING){
-        if(aps[ap_to_crack].candidate_passwords){
-            if(!*(aps[ap_to_crack].candidate_passwords+(8*aps[ap_to_crack].current_password))){
-                printf("Finished testing passwords\n");
-                // done with testing, go back to scanning
-                state = DISCONNECTING;
-                memcpy(aps[ap_to_crack].password, "UNKNOWN", 7);
-                aps[ap_to_crack].target = 0;
-                os_free(aps[ap_to_crack].candidate_passwords);
-                aps[ap_to_crack].candidate_passwords = NULL;
-                save_password(ap_to_crack);
-            }
-
-        } else {
-            printf("Error: no candidate passwords found!\n");
-            return;
+    if(aps[ap_to_crack].candidate_passwords){
+        if(!*(aps[ap_to_crack].candidate_passwords+(8*aps[ap_to_crack].current_password))){
+            printf("Finished testing passwords\n");
+            // done with testing, go back to scanning
+            state = DISCONNECTING;
+            memcpy(aps[ap_to_crack].password, "UNKNOWN", 7);
+            aps[ap_to_crack].target = 0;
+            os_free(aps[ap_to_crack].candidate_passwords);
+            aps[ap_to_crack].candidate_passwords = NULL;
+            save_password(ap_to_crack);
         }
+
+    } else {
+        printf("Error: no candidate passwords found!\n");
+        return;
     }
 
     if(state == DISCONNECTING){
