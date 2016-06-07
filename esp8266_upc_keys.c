@@ -317,7 +317,7 @@ int (*MD5_Final)(unsigned char *md, MD5_CTX *c) = 0x40009900;
 #define MAGIC2 0x6b5fca6bll
 
 #define MAX0 9
-#define MAX1 365
+#define MAX1 368
 #define MAX2 6800
 
 ICACHE_FLASH_ATTR
