@@ -37,8 +37,8 @@ os_event_t user_procTaskQueue[user_procTaskQueueLen];
 
 typedef struct {
     uint8_t bssid[6];
-    uint8_t password[9];
-    uint8_t padding;
+    uint8_t password[8];
+    uint8_t padding[2];
 } saved_ap_t;
 
 #ifdef MODE_HEADLESS
@@ -72,7 +72,7 @@ static void load_password(size_t ap_to_crack){
         spi_flash_read(USER_FLASH_START + (saved_aps*sizeof(saved_ap_t)), (uint32_t*) &saved_ap, sizeof(saved_ap_t));
         if(memcmp(saved_ap.bssid, aps[ap_to_crack].bssid, 6) == 0){
             memcpy(aps[ap_to_crack].password, saved_ap.password, 8);
-            printf("Loaded saved password %s for ESSID %s in slot %u\n", aps[ap_to_crack].password, aps[ap_to_crack].essid, saved_aps);
+            printf("Loaded saved password %s for ESSID %s from slot %u\n", aps[ap_to_crack].password, aps[ap_to_crack].essid, saved_aps);
             break;
         }
         saved_aps++;
@@ -180,6 +180,7 @@ static void test_passwords(os_event_t *events){
             // done with testing, go back to scanning
             state = DISCONNECTING;
             memcpy(aps[ap_to_crack].password, "UNKNOWN", 7);
+            aps[ap_to_crack].password[7] = 0;
             aps[ap_to_crack].target = 0;
             os_free(aps[ap_to_crack].candidate_passwords);
             aps[ap_to_crack].candidate_passwords = NULL;
