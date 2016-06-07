@@ -430,7 +430,7 @@ static void crack(os_event_t *events){
             }
         }
         }
-        aps[ap_to_crack].candidate_passwords = os_zalloc(8*cnt);
+        aps[ap_to_crack].candidate_passwords = os_zalloc(8*cnt + 1);
         for(i = 0; i < cnt; i++){
             memcpy(aps[ap_to_crack].candidate_passwords+(8*i), candidate_passwords[i], 8);
         }
