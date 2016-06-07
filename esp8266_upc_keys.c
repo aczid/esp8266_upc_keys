@@ -38,6 +38,7 @@ os_event_t user_procTaskQueue[user_procTaskQueueLen];
 typedef struct {
     uint8_t bssid[6];
     uint8_t password[9];
+    uint8_t padding;
 } saved_ap_t;
 
 #ifdef MODE_HEADLESS
@@ -65,7 +66,7 @@ scan(os_event_t *events){
 
 ICACHE_FLASH_ATTR
 static void load_password(size_t ap_to_crack){
-    saved_ap_t saved_ap;
+    saved_ap_t saved_ap = {0};
     size_t saved_aps = 0;
     do {
         spi_flash_read(USER_FLASH_START + (saved_aps*sizeof(saved_ap_t)), (uint32_t*) &saved_ap, sizeof(saved_ap_t));
@@ -143,7 +144,7 @@ targets_found(void* arg, STATUS status){
 
 ICACHE_FLASH_ATTR
 static void save_password(size_t ap_to_crack){
-    saved_ap_t saved_ap;
+    saved_ap_t saved_ap = {0};
     size_t saved_aps = 0;
     do {
         spi_flash_read(USER_FLASH_START + (saved_aps*sizeof(saved_ap_t)), (uint32_t*) &saved_ap, sizeof(saved_ap_t));
@@ -184,10 +185,11 @@ static void test_passwords(os_event_t *events){
             aps[ap_to_crack].candidate_passwords = NULL;
             save_password(ap_to_crack);
         }
-
     } else {
-        printf("Error: no candidate passwords found!\n");
-        return;
+        if(state == CONNECTING){
+            printf("Error: no candidate passwords found!\n");
+            return;
+        }
     }
 
     if(state == DISCONNECTING){
