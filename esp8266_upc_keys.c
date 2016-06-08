@@ -37,6 +37,7 @@ size_t aps_found;
 ap_t aps[MAX_APS];
 
 crack_job_t * crack_jobs[MAX_JOBS] = {0};
+size_t jobs_active;
 size_t last_job = 0;
 
 #ifdef MODE_HEADLESS
@@ -78,6 +79,13 @@ static void load_password(size_t ap_index){
     } while(saved_ap.password[0] != 0xff && (saved_aps < (USER_FLASH_SIZE / sizeof(saved_ap_t))));
 }
 
+void randomize_mac_addr(void){
+    char mac[6];
+    os_get_random(mac, 6);
+    printf("Setting MAC address to: %02x:%02x:%02x:%02x:%02x:%02x\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    wifi_set_macaddr(STATION_IF, mac);
+}
+
 enum {
     SCANNING,
     TARGETING,
@@ -93,6 +101,7 @@ static void targets_found(void* arg, STATUS status);
 os_event_t user_procTaskQueue[user_procTaskQueueLen];
 
 size_t global_ap_to_test;
+static volatile os_timer_t blink_timer;
 
 void add_cracker_job(crack_job_t *job){
     printf("Adding cracker job...");
@@ -102,6 +111,7 @@ void add_cracker_job(crack_job_t *job){
             crack_jobs[i] = aps[aps_found].job;
             i++;
             printf(" in slot %u", i);
+            jobs_active++;
             break;
         }
     }
@@ -124,17 +134,28 @@ void delete_cracker_job(crack_job_t *job){
     if(job){
         for(jobs = 0; jobs < last_job; jobs++){
             if(crack_jobs[jobs] == job){
-                printf(" from slot %u", jobs);
+                printf(" from slot %u", jobs+1);
                 printf("/%u\n", last_job);
                 last_job--;
                 // re-organise job pointers
                 crack_jobs[jobs] = crack_jobs[last_job];
                 crack_jobs[last_job] = NULL;
+                jobs_active--;
                 break;
             }
         }
     }
 }
+
+void blink(void *arg){
+  if (GPIO_REG_READ(GPIO_OUT_ADDRESS) & (1 << LED_PIN))
+  {
+    GPIO_OUTPUT_SET(LED_PIN, 0);
+  } else {
+    GPIO_OUTPUT_SET(LED_PIN, 1);
+  }
+}
+
 
 ICACHE_FLASH_ATTR
 static void
@@ -203,6 +224,9 @@ wifi(os_event_t *events){
                     memcpy(config.bssid, aps[global_ap_to_test].bssid, 6);
                     config.bssid_set = 0;
                     printf("Connecting to %s with password %s\n", config.ssid, config.password);
+#ifdef SPOOF_MAC
+                    randomize_mac_addr();
+#endif
                     wifi_station_set_config(&config);
                     wifi_station_connect();
                     state = CONNECTING;
@@ -284,11 +308,16 @@ targets_found(void* arg, STATUS status){
     }
     if(ap_to_test != -1){
         printf("Connecting to ESSID %s...\n", aps[ap_to_test].essid);
+        os_timer_disarm(&blink_timer);
         GPIO_OUTPUT_SET(LED_PIN, 0);
         state = CONNECTING;
         global_ap_to_test = ap_to_test;
     } else {
-        GPIO_OUTPUT_SET(LED_PIN, 1);
+        if(jobs_active){
+            os_timer_arm(&blink_timer, 1000/jobs_active, 1);
+        } else {
+            os_timer_disarm(&blink_timer);
+        }
         state = SCANNING;
     }
     system_os_post(PRIO_WIFI, 0, 0 );
@@ -300,12 +329,17 @@ void user_init()
     // set up LED
     gpio_init();
     GPIO_OUTPUT_SET(LED_PIN, 1);
+
+    // set up blinking of LED
+    os_timer_setfn(&blink_timer, blink, NULL);
+
 #ifndef MODE_HEADLESS
     uart_init(115200, 115200);
     os_delay_us(100);
 #endif
 
-    wifi_set_opmode( 0x1 );
+
+    wifi_set_opmode(STATION_MODE);
     wifi_station_set_auto_connect(false);
     wifi_station_dhcpc_stop();
     wifi_station_set_hostname("esp8266_upc_keys");
@@ -484,12 +518,6 @@ static void crack(os_event_t *events){
     }
     if(buf[1] == MAX1+1){
         buf[1] = 0;
-        size_t jobs_active = 0;
-        for(jobs = 0; jobs < last_job; jobs++){
-            if(job){
-                jobs_active++;
-            }
-        }
         printf("Cracking %u target(s)... %u/%u\n", jobs_active, buf[0], MAX0);
         buf[0]++;
     }

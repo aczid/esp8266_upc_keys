@@ -9,6 +9,8 @@
 #define USER_FLASH_START 0x3c000
 #define USER_FLASH_SIZE  0x4000
 
+#define SPOOF_MAC
+
 // doesn't use UART but just enables/disables the LED (probably faster too)
 // #define MODE_HEADLESS
 #define LED_PIN 2
