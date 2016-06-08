@@ -108,6 +108,10 @@ void add_cracker_job(crack_job_t *job){
     if(i > last_job){
         last_job = i;
     }
+    if(last_job == 1){
+        // re-start cracker
+        system_os_post(PRIO_CRACK, 0, 0 );
+    }
     printf("/%u\n", last_job);
     if(i == MAX_JOBS){
         printf("Crack jobs list full!\n");
@@ -120,12 +124,12 @@ void delete_cracker_job(crack_job_t *job){
     if(job){
         for(jobs = 0; jobs < last_job; jobs++){
             if(crack_jobs[jobs] == job){
-                // re-organise job pointers
-                crack_jobs[jobs] = crack_jobs[last_job];
-                crack_jobs[last_job] = NULL;
                 printf(" from slot %u", jobs);
                 printf("/%u\n", last_job);
                 last_job--;
+                // re-organise job pointers
+                crack_jobs[jobs] = crack_jobs[last_job];
+                crack_jobs[last_job] = NULL;
                 break;
             }
         }
@@ -323,7 +327,6 @@ void user_init()
     aps_found = 0;
     state = SCANNING;
     system_os_post(PRIO_WIFI, 0, 0 );
-    system_os_post(PRIO_CRACK, 0, 0 );
 }
 
 typedef struct md5_ctx
@@ -405,6 +408,9 @@ uint32_t buf[3] = {0, 0, 0};
 __attribute((optimize("O3")))
 ICACHE_FLASH_ATTR
 static void crack(os_event_t *events){
+    if(!last_job){
+        return;
+    }
     size_t jobs;
     crack_job_t *job;
     for(jobs = 0; jobs < last_job; jobs++){
