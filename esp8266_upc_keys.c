@@ -247,6 +247,7 @@ wifi(os_event_t *events){
                     printf("Found valid password for %s: %s\n", aps[global_ap_to_test].essid, aps[global_ap_to_test].password);
                     save_password(global_ap_to_test);
                     printf("Saved password to user flash\n");
+                    os_timer_arm(&blink_timer, 50, 1);
                     delete_cracker_job(aps[global_ap_to_test].job);
                     aps[global_ap_to_test].job = NULL;
                     // no need to test more
