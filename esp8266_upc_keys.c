@@ -148,8 +148,7 @@ void delete_cracker_job(crack_job_t *job){
 }
 
 void blink(void *arg){
-  if (GPIO_REG_READ(GPIO_OUT_ADDRESS) & (1 << LED_PIN))
-  {
+  if (GPIO_REG_READ(GPIO_OUT_ADDRESS) & (1 << LED_PIN)){
     GPIO_OUTPUT_SET(LED_PIN, 0);
   } else {
     GPIO_OUTPUT_SET(LED_PIN, 1);
@@ -325,8 +324,7 @@ targets_found(void* arg, STATUS status){
 }
 
 ICACHE_FLASH_ATTR
-void user_init()
-{
+void user_init(){
     // set up LED
     gpio_init();
     GPIO_OUTPUT_SET(LED_PIN, 1);
