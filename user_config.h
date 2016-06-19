@@ -1,7 +1,8 @@
-#define MAX_APS      512
-#define MAX_JOBS    1024
-#define MAX_TRIES    1
-#define MIN_STRENGTH -95
+#define MAX_APS           512
+#define MAX_CRACK_JOBS    32
+#define MAX_SAVED_RESULTS 128
+#define MAX_TRIES         1
+#define MIN_STRENGTH      -127
 
 #define PRIO_WIFI  USER_TASK_PRIO_2
 #define PRIO_CRACK USER_TASK_PRIO_1

