@@ -1,4 +1,5 @@
 from ctypes import *
+import sys
 
 class SavedAP(Structure):
     _pack_ = True
@@ -14,7 +15,11 @@ class SavedAP(Structure):
     def empty(self):
         return list(self.bssid) == [0xff]*6
 
-with file('saved_passwords.bin') as f:
+if len(sys.argv) > 1:
+    filename = sys.argv[1]
+else:
+    filename = 'saved_passwords.bin'
+with file(filename) as f:
     while True:
         saved_ap = SavedAP.from_buffer_copy(f.read(sizeof(SavedAP)))
         if saved_ap.empty():
