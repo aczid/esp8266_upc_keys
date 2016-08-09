@@ -13,6 +13,6 @@
 #define SPOOF_MAC
 
 // doesn't use UART but just enables/disables the LED (probably faster too)
-#define MODE_HEADLESS
+// #define MODE_HEADLESS
 #define LED_PIN 2
 
