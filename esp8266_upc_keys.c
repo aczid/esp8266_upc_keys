@@ -602,6 +602,7 @@ static void crack(os_event_t *events){
         if(job && memcmp(job->start_buf, buf, sizeof(buf)) == 0){
             printf("Finished generating passwords for target UPC%07d\n", job->target);
             delete_cracker_job(job);
+            job->finished_cracking = true;
             finished_jobs[jobs_finished] = job;
             jobs_finished++;
         }
