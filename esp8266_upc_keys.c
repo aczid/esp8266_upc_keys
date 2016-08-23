@@ -212,9 +212,9 @@ static void wifi(os_event_t *events){
                     printf("Finished testing passwords for ESSID %s\n", aps[i].essid);
                     memcpy(aps[i].password, "UNKNOWN", 7);
                     aps[i].password[7] = 0;
+                    save_password(i);
                     free_job(aps[i].job);
                     aps[i].job = NULL;
-                    save_password(i);
                 }
             }
             if(aps[i].job){
