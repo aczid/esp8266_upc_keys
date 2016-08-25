@@ -249,8 +249,10 @@ static void wifi(os_event_t *events){
                     printf("Wrong password!\n");
                     aps[global_ap_to_test].job->current_password++;
                     if(aps[global_ap_to_test].job->current_password >= aps[global_ap_to_test].job->passwords_found){
+                        // explicitly restart wifi task when out of passwords to test
                         state = DISCONNECTING;
-                        break;
+                        system_os_post(PRIO_WIFI, 0, 0 );
+                        return;
                     }
                     // fall through
                 case STATION_IDLE: {
