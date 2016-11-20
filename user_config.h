@@ -1,7 +1,7 @@
 // the size of the buffer for scanning AP metadata
 #define MAX_APS           512
 // the number of targets cracked in parallel
-#define MAX_CRACK_JOBS    64
+#define MAX_CRACK_JOBS    8
 // the max number of targets with cached passwords
 #define MAX_SAVED_RESULTS 128
 // the max tries to connect to the AP
