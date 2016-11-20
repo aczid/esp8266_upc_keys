@@ -1,7 +1,7 @@
 CC = xtensa-lx106-elf-gcc
-CFLAGS = -I. -mlongcalls -Os
+CFLAGS = -I. -mlongcalls -Os -std=c99
 LDLIBS = -nostdlib -Wl,--start-group -lmain -lnet80211 -lwpa -llwip -lpp -lphy -Wl,--end-group -lgcc
-LDFLAGS = -Teagle.app.v6.ld
+LDFLAGS = -Teagle.app.v6.ld -flto 
 
 %.o: %.c
 	$(CC) -Iinclude/ $(CFLAGS)  -c $< -o $@

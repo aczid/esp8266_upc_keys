@@ -13,24 +13,25 @@
 #include "user_interface.h"
 
 typedef struct {
-    uint8_t bssid[6];
-    uint8_t password[8];
-    uint8_t padding[2];
+    int8_t bssid[6];
+    int8_t password[8];
+    uint8_t tested_passwords;
+    uint8_t padding;
 } saved_ap_t;
 
 typedef struct {
     uint32_t target;
-    char *candidate_passwords;
-    size_t current_password;
-    size_t passwords_found;
+    int8_t *candidate_passwords;
+    uint8_t current_password;
+    uint8_t passwords_found;
     bool finished_cracking;
     uint32_t start_buf[3];
 } crack_job_t;
 
 typedef struct {
-    uint8_t essid[32];
+    char essid[32];
     uint8_t bssid[6];
-    uint8_t password[8];
+    char password[8];
     crack_job_t *job;
 } ap_t;
 
@@ -85,7 +86,7 @@ static void load_password(size_t ap_index){
 
 ICACHE_FLASH_ATTR
 static void randomize_mac_addr(void){
-    char mac[6];
+    unsigned char mac[6];
     os_get_random(mac, 6);
     printf("Setting MAC address to: %02x:%02x:%02x:%02x:%02x:%02x\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     wifi_set_macaddr(STATION_IF, mac);
@@ -314,7 +315,7 @@ static void wifi_scan_cb(void* arg, STATUS status){
     while (bss_link != NULL){
         bool found_ap = false;
         for(i = 0; i < aps_found; i++){
-            if(strncmp(aps[i].essid, bss_link->ssid, 32) == 0){
+            if(strncmp(aps[i].essid, (char*) bss_link->ssid, 32) == 0){
                 found_ap = true;
                 break;
             }
@@ -477,7 +478,7 @@ int (*MD5_Final)(unsigned char *md, MD5_CTX *c) = 0x40009900;
 #define MAX2 6800
 
 ICACHE_FLASH_ATTR
-static
+inline
 void hash2pass(uint8_t *in_hash, char *out_pass)
 {
 	uint32_t i, a;
@@ -499,7 +500,7 @@ void hash2pass(uint8_t *in_hash, char *out_pass)
 
 
 ICACHE_FLASH_ATTR
-static
+inline
 uint32_t mangle(uint32_t *pp)
 {
 	uint32_t a, b;
@@ -520,7 +521,8 @@ uint32_t upc_generate_ssid(uint32_t* data, uint32_t magic)
 }
 
 ICACHE_FLASH_ATTR
-static void serial2pass(char* serial, char* pass){
+inline
+void serial2pass(char* serial, char* pass){
     uint8_t h1[16], h2[16];
     uint32_t hv[4], w1, w2, i;
     char tmpstr[17];
@@ -574,7 +576,7 @@ static void crack(os_event_t *events){
             job->candidate_passwords = (char*) os_zalloc(required_size);
         }
 
-        uint8_t *prefix[3] = {"SAAP", "SAPP", "SBAP"};
+        char *prefix[3] = {"SAAP", "SAPP", "SBAP"};
         size_t prefix_idx;
 
         for(prefix_idx = 0; prefix_idx < 3; prefix_idx++){
