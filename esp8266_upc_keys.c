@@ -596,16 +596,16 @@ static void crack(os_event_t *events){
     if(buf[2] == MAX2+1){
         buf[2] = 0;
         buf[1] += 6800;
-    }
-    if(buf[1] == (MAX1+1)*6800){
-        buf[1] = 0;
-        printf("Cracking %u target(s)... %u/%u\n", jobs_active, buf[0]/2500000, MAX0);
-        buf[0] += 2500000;
-    }
-    if(buf[0] == (MAX0+1)*2500000){
-        buf[0] = 0;
-        buf[1] = 0;
-        buf[2] = 0;
+        if(buf[1] == (MAX1+1)*6800){
+            buf[1] = 0;
+            printf("Cracking %u target(s)... %u/%u\n", jobs_active, buf[0]/2500000, MAX0);
+            buf[0] += 2500000;
+            if(buf[0] == (MAX0+1)*2500000){
+                buf[0] = 0;
+                buf[1] = 0;
+                buf[2] = 0;
+            }
+        }
     }
     for(jobs_idx = 0; jobs_idx < last_active_job; jobs_idx++){
         job = running_jobs[jobs_idx];
