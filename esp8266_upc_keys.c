@@ -562,13 +562,13 @@ static void crack(os_event_t *events){
     crack_job_t *job;
     // inline upc_generate_ssid
     uint64_t a = buf[0] + buf[1] + buf[2] + MAGIC_24GHZ;
-    uint32_t serial = (a - (((a * MAGIC2) >> 54) - (a >> 31)) * 10000000);
+    uint32_t essid_digits = (a - (((a * MAGIC2) >> 54) - (a >> 31)) * 10000000);
     for(jobs_idx = 0; jobs_idx < last_active_job; jobs_idx++){
         job = running_jobs[jobs_idx];
         if(!job){
             continue;
         }
-        if (serial != job->target)
+        if (essid_digits != job->target)
             continue;
 
         size_t required_size = 8*(job->passwords_found+3);
