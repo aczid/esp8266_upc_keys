@@ -21,7 +21,7 @@ flash: esp8266_upc_keys-0x00000.bin esp8266_upc_keys-0x40000.bin saved_passwords
 	esptool.py write_flash 0 esp8266_upc_keys-0x00000.bin 0x40000 esp8266_upc_keys-0x40000.bin 0x3c000 saved_passwords.bin
 
 get_saved_passwords:
-	esptool.py read_flash 0x3c000 0x1000 saved_passwords.bin
+	esptool.py read_flash 0x3c000 0x4000 saved_passwords.bin
 
 clean:
 	rm -f esp8266_upc_keys esp8266_upc_keys.o esp8266_upc_keys-0x00000.bin esp8266_upc_keys-0x40000.bin
