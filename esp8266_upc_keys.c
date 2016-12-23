@@ -606,7 +606,7 @@ static void crack(os_event_t *events){
                 buf[0] = 0;
             }
         }
-        sum = buf[0] * 2500000 + buf[1] * 6800 + buf[2] + MAGIC_24GHZ;
+        sum = buf[0] * 2500000 + buf[1] * 6800 + MAGIC_24GHZ;
     } else {
         sum++;
     }
