@@ -25,7 +25,7 @@ typedef struct {
     uint8_t current_password;
     uint8_t passwords_found;
     bool finished_cracking;
-    uint32_t start_buf[3];
+    uint64_t start_sum;
 } crack_job_t;
 
 typedef struct {
@@ -44,6 +44,7 @@ static size_t jobs_active;
 static size_t jobs_finished = 0;
 static size_t last_active_job = 0;
 static size_t last_finished_job = 0;
+static uint64_t sum;
 
 #ifdef MODE_HEADLESS
 #define printf(...)
@@ -359,7 +360,7 @@ static void wifi_scan_cb(void* arg, STATUS status){
                             aps[aps_found].job = (crack_job_t*) os_zalloc(sizeof(crack_job_t));
                             if(aps[aps_found].job){
                                 aps[aps_found].job->target = target;
-                                memcpy(aps[aps_found].job->start_buf, buf, sizeof(buf));
+                                aps[aps_found].job->start_sum = sum;
                                 add_cracker_job(aps[aps_found].job);
                             } else {
                                 printf("Malloc error! Heap full?\n");
@@ -402,46 +403,6 @@ static void wifi_scan_cb(void* arg, STATUS status){
     system_os_post(PRIO_WIFI, 0, 0 );
 }
 
-ICACHE_FLASH_ATTR
-void user_init(){
-    // go at full speed
-    system_update_cpu_freq(SYS_CPU_160MHZ);
-
-    // set up LED
-    gpio_init();
-    GPIO_OUTPUT_SET(LED_PIN, 1);
-
-    // set up blinking of LED
-    os_timer_setfn(&blink_timer, blink, NULL);
-
-#ifndef MODE_HEADLESS
-    uart_init(115200, 115200);
-    os_delay_us(100);
-#endif
-
-    // set up networking
-    wifi_set_opmode(STATION_MODE);
-    wifi_station_set_auto_connect(false);
-    wifi_station_dhcpc_stop();
-    wifi_station_set_hostname("esp8266_upc_keys");
-
-    struct ip_info info;
-    info.ip.addr = ipaddr_addr("192.168.13.37");
-    info.netmask.addr = ipaddr_addr("255.255.255.0");
-    info.gw.addr = ipaddr_addr("192.168.1.1");
-    wifi_set_ip_info(STATION_IF, &info);
-
-    // set up tasks
-    system_os_task(wifi, PRIO_WIFI, user_procTaskQueue, user_procTaskQueueLen);
-    system_os_task(crack, PRIO_CRACK, user_procTaskQueue, user_procTaskQueueLen);
-
-    // start scanning
-    memset(aps, 0x0, sizeof(aps));
-    aps_found = 0;
-    state = SCANNING;
-    system_os_post(PRIO_WIFI, 0, 0 );
-}
-
 typedef struct md5_ctx
 {
   uint32_t A;
@@ -476,6 +437,48 @@ int (*MD5_Final)(unsigned char *md, MD5_CTX *c) = 0x40009900;
 #define MAX0 9
 #define MAX1 367
 #define MAX2 6799
+
+ICACHE_FLASH_ATTR
+void user_init(){
+    // go at full speed
+    system_update_cpu_freq(SYS_CPU_160MHZ);
+
+    // set up LED
+    gpio_init();
+    GPIO_OUTPUT_SET(LED_PIN, 1);
+
+    // set up blinking of LED
+    os_timer_setfn(&blink_timer, blink, NULL);
+
+#ifndef MODE_HEADLESS
+    uart_init(115200, 115200);
+    os_delay_us(100);
+#endif
+
+    // set up networking
+    wifi_set_opmode(STATION_MODE);
+    wifi_station_set_auto_connect(false);
+    wifi_station_dhcpc_stop();
+    wifi_station_set_hostname("esp8266_upc_keys");
+
+    struct ip_info info;
+    info.ip.addr = ipaddr_addr("192.168.13.37");
+    info.netmask.addr = ipaddr_addr("255.255.255.0");
+    info.gw.addr = ipaddr_addr("192.168.1.1");
+    wifi_set_ip_info(STATION_IF, &info);
+
+    sum = MAGIC_24GHZ;
+
+    // set up tasks
+    system_os_task(wifi, PRIO_WIFI, user_procTaskQueue, user_procTaskQueueLen);
+    system_os_task(crack, PRIO_CRACK, user_procTaskQueue, user_procTaskQueueLen);
+
+    // start scanning
+    memset(aps, 0x0, sizeof(aps));
+    aps_found = 0;
+    state = SCANNING;
+    system_os_post(PRIO_WIFI, 0, 0 );
+}
 
 ICACHE_FLASH_ATTR
 inline
@@ -552,8 +555,6 @@ void serial2pass(char* serial, char* pass){
     hash2pass(h2, pass);
 }
 
-uint64_t sum = MAGIC_24GHZ;
-
 __attribute((optimize("O3")))
 ICACHE_FLASH_ATTR
 static void crack(os_event_t *events){
@@ -613,7 +614,7 @@ static void crack(os_event_t *events){
     }
     for(jobs_idx = 0; jobs_idx < last_active_job; jobs_idx++){
         job = running_jobs[jobs_idx];
-        if(job && memcmp(job->start_buf, buf, sizeof(buf)) == 0){
+        if(job && job->start_sum == sum){
             printf("Finished generating passwords for target UPC%07d\n", job->target);
             delete_cracker_job(job);
             job->finished_cracking = true;
