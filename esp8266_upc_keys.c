@@ -552,7 +552,7 @@ void serial2pass(char* serial, char* pass){
     hash2pass(h2, pass);
 }
 
-uint64_t sum;
+uint64_t sum = MAGIC_24GHZ;
 
 __attribute((optimize("O3")))
 ICACHE_FLASH_ATTR
