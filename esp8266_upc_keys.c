@@ -587,22 +587,19 @@ static void crack(os_event_t *events){
         for(prefix_idx = 0; prefix_idx < 3; prefix_idx++){
             char serial[13] = {0};
             char *pass = job->candidate_passwords+(8*(job->passwords_found));
-            os_sprintf(serial, "%s%d%03d%d", prefix[prefix_idx], buf[0], buf[1], buf[2]);
+            os_sprintf(serial, "%s%d%03d%04d", prefix[prefix_idx], buf[0], buf[1], buf[2]);
             serial2pass(serial, pass);
             //printf("  -> WPA2 phrase for '%s' = '%s'\n", serial, pass);
             job->passwords_found++;
         }
     }
 
-    buf[2]++;
-    if(buf[2] == MAX2+1){
+    if(++buf[2] == MAX2+1){
         buf[2] = 0;
-        buf[1]++;
-        if(buf[1] == (MAX1+1)){
+        if(++buf[1] == (MAX1+1)){
             buf[1] = 0;
             printf("Cracking %u target(s)... %u/%u\n", jobs_active, buf[0], MAX0);
-            buf[0]++;
-            if(buf[0] == (MAX0+1)){
+            if(++buf[0] == (MAX0+1)){
                 buf[0] = 0;
             }
         }
