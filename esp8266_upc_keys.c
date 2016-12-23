@@ -127,6 +127,7 @@ static void add_cracker_job(crack_job_t *job){
     if(job_idx > last_active_job){
         last_active_job = job_idx;
     }
+    job->start_sum = sum;
     if(last_active_job == 1){
         // re-start cracker
         system_os_post(PRIO_CRACK, 0, 0 );
