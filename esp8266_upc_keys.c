@@ -13,15 +13,15 @@
 #include "user_interface.h"
 
 typedef struct {
-    int8_t bssid[6];
-    int8_t password[8];
+    uint8_t bssid[6];
+    uint8_t password[8];
     uint8_t tested_passwords;
     uint8_t padding;
 } saved_ap_t;
 
 typedef struct {
     uint32_t target;
-    int8_t *candidate_passwords;
+    uint8_t *candidate_passwords;
     uint8_t current_password;
     uint8_t passwords_found;
     bool finished_cracking;
