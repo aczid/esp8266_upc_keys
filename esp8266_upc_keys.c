@@ -39,13 +39,13 @@ typedef struct {
 } ap_t;
 
 // AP scanning buffer
-static size_t aps_found;
+static size_t aps_found = 0;
 static ap_t aps[MAX_APS];
 
 // 2 queues for managing running/finished cracker jobs
 static crack_job_t * jobs_running_queue[MAX_CRACK_JOBS] = {0};
 static crack_job_t * jobs_finished_queue[MAX_SAVED_RESULTS] = {0};
-static size_t jobs_running;
+static size_t jobs_running = 0;
 static size_t jobs_finished = 0;
 
 // running counter used by cracking logic
@@ -483,6 +483,8 @@ void user_init(){
     // start scanning
     memset(aps, 0x0, sizeof(aps));
     aps_found = 0;
+    jobs_running = 0;
+    jobs_finished = 0;
     state = SCANNING;
     system_os_post(PRIO_WIFI, 0, 0 );
 }
@@ -563,7 +565,7 @@ void serial2pass(char* serial, char* pass){
 }
 
 #define TESTED_PREFIXES 3
-char *prefix[TESTED_PREFIXES] = {"SAAP", "SAPP", "SBAP"};
+const char *prefix[TESTED_PREFIXES] = {"SAAP", "SAPP", "SBAP"};
 #define PASSWORD_SIZE 8
 
 __attribute((optimize("O3")))
