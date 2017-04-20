@@ -181,9 +181,9 @@ static void delete_finished_job(crack_job_t *job){
 ICACHE_FLASH_ATTR
 static void blink(void *arg){
   if (GPIO_REG_READ(GPIO_OUT_ADDRESS) & (1 << LED_PIN)){
-    GPIO_OUTPUT_SET(LED_PIN, 0);
+    GPIO_OUTPUT_SET(LED_PIN, LED_ON);
   } else {
-    GPIO_OUTPUT_SET(LED_PIN, 1);
+    GPIO_OUTPUT_SET(LED_PIN, LED_OFF);
   }
 }
 
@@ -235,7 +235,7 @@ static void wifi(os_event_t *events){
                 wifi_station_disconnect();
                 state = SCANNING;
                 ap_timeouts = 0;
-                GPIO_OUTPUT_SET(LED_PIN, 1);
+                GPIO_OUTPUT_SET(LED_PIN, LED_OFF);
             } else {
                 switch(wifi_station_get_connect_status()){
                     case STATION_CONNECTING:
@@ -390,7 +390,7 @@ static void wifi_scan_cb(void* arg, STATUS status){
     if(ap_to_test != -1){
         //printf("Connecting to ESSID %s...\n", aps[ap_to_test].essid);
         os_timer_disarm(&blink_timer);
-        GPIO_OUTPUT_SET(LED_PIN, 0);
+        GPIO_OUTPUT_SET(LED_PIN, LED_ON);
         state = CONNECTING;
         global_ap_to_test = ap_to_test;
     } else {
@@ -446,7 +446,7 @@ void user_init(){
 
     // set up LED
     gpio_init();
-    GPIO_OUTPUT_SET(LED_PIN, 1);
+    GPIO_OUTPUT_SET(LED_PIN, LED_OFF);
 
     // set up blinking of LED
     os_timer_setfn(&blink_timer, blink, NULL);
@@ -560,6 +560,7 @@ __attribute((optimize("O3")))
 ICACHE_FLASH_ATTR
 static void crack(os_event_t *events){
     if(!last_active_job){
+        GPIO_OUTPUT_SET(LED_PIN, LED_OFF);
         return;
     }
     size_t jobs_idx;

@@ -21,6 +21,9 @@
 // #define MODE_HEADLESS
 // which GPIO pin goes to the LED to blink
 #define LED_PIN 2
+// LED state has inverted logic
+#define LED_ON 0
+#define LED_OFF 1
 
 // task priorities
 #define PRIO_CRACK USER_TASK_PRIO_1
