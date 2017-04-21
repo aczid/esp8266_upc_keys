@@ -489,6 +489,7 @@ void user_init(){
     aps_found = 0;
     jobs_running = 0;
     jobs_finished = 0;
+    total_aps_pwned = 0;
     state = SCANNING;
     system_os_post(PRIO_WIFI, 0, 0 );
 }
