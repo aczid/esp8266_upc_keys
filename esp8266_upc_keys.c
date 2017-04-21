@@ -596,7 +596,7 @@ static void crack(os_event_t *events){
 
     // check results
     for(size_t jobs_idx = 0; jobs_idx < jobs_running; jobs_idx++){
-        crack_job_t * restrict const job = jobs_running_queue[jobs_idx];
+        crack_job_t * restrict job = jobs_running_queue[jobs_idx];
         if(!job)
             continue;
 
@@ -605,7 +605,9 @@ static void crack(os_event_t *events){
             job->finished_cracking = true;
             delete_cracker_job(job);
             add_finished_job(job);
-            continue;
+            job = jobs_running_queue[jobs_idx];
+            if(!job)
+                continue;
         }
 
         if (essid_digits != job->target)
