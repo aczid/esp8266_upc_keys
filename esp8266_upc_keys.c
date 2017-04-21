@@ -153,12 +153,13 @@ static size_t delete_queue_job(crack_job_t *job, crack_job_t ** queue, size_t ma
     return found_job_idx;
 }
 ICACHE_FLASH_ATTR
-static void find_queue_target(crack_job_t ** queue, size_t max, uint32_t target, bool *found){
+static crack_job_t * find_queue_target(crack_job_t ** queue, size_t max, uint32_t target){
     for(size_t i = 0; i < max; i++){
         if(queue[i] && queue[i]->target == target){
-            *found = true;
+            return queue[i];
         }
     }
+    return NULL;
 }
 
 ICACHE_FLASH_ATTR
@@ -348,28 +349,31 @@ static void wifi_scan_cb(void* arg, STATUS status){
                 memcpy(aps[aps_found].bssid, bss_link->bssid, 6);
                 memcpy(aps[aps_found].essid, bss_link->ssid, 32);
 
+                // check if this AP should be targetdd
                 if(strncmp(aps[aps_found].essid, "UPC", 3) == 0 && strlen(aps[aps_found].essid) == 10){
+                    // check if we have the password in memory or in flash
                     if(!aps[aps_found].password[0]){
                         load_password(aps_found);
                     }
-                    if(!aps[aps_found].password[0]){
+                    // if not in memory or flash, see if there is already an associated cracker job for this AP
+                    if(!aps[aps_found].password[0] && !aps[aps_found].job){
                         uint32_t target = 0;
                         for(i = 3; i < 10; i++){
                             target *= 10;
                             target += aps[aps_found].essid[i]-0x30;
                         }
-                        bool found_target = false;
-                        find_queue_target(jobs_running_queue, jobs_running, target, &found_target);
-                        find_queue_target(jobs_finished_queue, jobs_finished, target, &found_target);
-                        if(!found_target){
+                        // see if it's in the running queue
+                        aps[aps_found].job = find_queue_target(jobs_running_queue, jobs_running, target);
+                        if(!aps[aps_found].job){
+                            // see if it's in the finished queue
+                            aps[aps_found].job = find_queue_target(jobs_finished_queue, jobs_finished, target);
+                        }
+                        // if we still got nothing it's time to add a new job
+                        if(!aps[aps_found].job){
                             aps[aps_found].job = (crack_job_t*) os_zalloc(sizeof(crack_job_t));
-                            if(aps[aps_found].job){
-                                aps[aps_found].job->target = target;
-                                aps[aps_found].job->start_sum = sum;
-                                add_cracker_job(aps[aps_found].job);
-                            } else {
-                                printf("Malloc error! Heap full?\n");
-                            }
+                            aps[aps_found].job->target = target;
+                            aps[aps_found].job->start_sum = sum;
+                            add_cracker_job(aps[aps_found].job);
                         }
                     }
                 }
@@ -608,12 +612,8 @@ static void crack(os_event_t *events){
             continue;
 
         const size_t required_size = PASSWORD_SIZE*(job->passwords_found+TESTED_PREFIXES);
-        if(job->candidate_passwords){
-            job->candidate_passwords = (char*) os_realloc(job->candidate_passwords, required_size);
-            memset(job->candidate_passwords+(job->passwords_found*PASSWORD_SIZE), 0, TESTED_PREFIXES*PASSWORD_SIZE);
-        } else {
-            job->candidate_passwords = (char*) os_zalloc(required_size);
-        }
+        job->candidate_passwords = (char*) os_realloc(job->candidate_passwords, required_size);
+        memset(job->candidate_passwords+(job->passwords_found*PASSWORD_SIZE), 0, TESTED_PREFIXES*PASSWORD_SIZE);
 
         // roll back state
         uint32_t old_buf[3];
