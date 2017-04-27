@@ -361,7 +361,7 @@ static void wifi_scan_cb(void* arg, STATUS status){
     while (bss_link != NULL){
         bool found_ap = false;
         for(i = 0; i < aps_found; i++){
-            if(strncmp(aps[i].essid, (char*) bss_link->ssid, 32) == 0){
+            if(memcmp(aps[i].bssid, bss_link->bssid, 6) == 0){
                 found_ap = true;
                 break;
             }
