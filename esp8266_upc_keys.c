@@ -202,11 +202,11 @@ static void delete_finished_job(crack_job_t *job){
 
 ICACHE_FLASH_ATTR
 static void blink(void *arg){
-  if (GPIO_REG_READ(GPIO_OUT_ADDRESS) & (1 << LED_PIN)){
-    GPIO_OUTPUT_SET(LED_PIN, LED_ON);
-  } else {
-    GPIO_OUTPUT_SET(LED_PIN, LED_OFF);
-  }
+    if (GPIO_REG_READ(GPIO_OUT_ADDRESS) & (1 << LED_PIN)){
+        GPIO_OUTPUT_SET(LED_PIN, LED_ON);
+    } else {
+        GPIO_OUTPUT_SET(LED_PIN, LED_OFF);
+    }
 }
 
 ICACHE_FLASH_ATTR
@@ -631,6 +631,8 @@ static void crack(os_event_t *events){
 
             if (essid_digits != job->target)
                 continue;
+
+            system_soft_wdt_feed();
 
             const size_t required_size = PASSWORD_SIZE*(job->passwords_found+TESTED_PREFIXES);
             job->candidate_passwords = (char*) os_realloc(job->candidate_passwords, required_size);
