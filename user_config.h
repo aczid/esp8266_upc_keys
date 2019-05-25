@@ -20,7 +20,7 @@
 #define SPOOF_MAC
 
 // doesn't use UART but just enables/disables the LED (probably faster too)
-#define MODE_HEADLESS
+//#define MODE_HEADLESS
 // which GPIO pin goes to the LED to blink
 #define LED_PIN 2
 // LED state has inverted logic
