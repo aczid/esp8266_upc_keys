@@ -1,15 +1,15 @@
 // the size of the buffer for scanning AP metadata
 #define MAX_APS           512
 // the number of targets cracked in parallel
-#define MAX_CRACK_JOBS    8
+#define MAX_CRACK_JOBS    64
 // the max number of targets with cached passwords
 #define MAX_SAVED_RESULTS 64
 // the max tries to connect to the AP
 #define MAX_TRIES         1
 // the minimum signal quality
-#define MIN_STRENGTH      -85
+#define MIN_STRENGTH      -95
 // how often to check for wifi APs (in seconds)
-#define SCAN_INTERVAL     5
+//#define SCAN_INTERVAL     5
 
 // user flash area to store cracked AP data
 #define USER_FLASH_START 0x5c000

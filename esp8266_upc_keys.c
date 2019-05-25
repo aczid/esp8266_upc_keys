@@ -9,7 +9,6 @@
 #include "gpio.h"
 #include "os_type.h"
 #include "user_config.h"
-//#include "driver/uart.h"
 #include "user_interface.h"
 
 // structure used for saving/loading scan results to/from user flash
