@@ -11,9 +11,8 @@
 #include "user_config.h"
 #include "user_interface.h"
 
-#define likely(x)  __builtin_expect(!!(x), 1)
-#define unlikely(x)    __builtin_expect(!!(x), 0)
-
+#define likely(x)   __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
 
 // structure used for saving/loading scan results to/from user flash
 typedef struct {
