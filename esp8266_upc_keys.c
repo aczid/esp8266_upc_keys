@@ -562,9 +562,7 @@ uint32_t mangle(uint32_t *pp)
 	return b * (pp[1] * 100 + pp[2] * 10 + pp[0]);
 }
 
-__attribute((optimize("O3")))
 ICACHE_FLASH_ATTR
-inline
 uint32_t upc_generate_ssid(uint32_t* data, uint32_t magic)
 {
     uint64_t a = data[0] * 2500000 + data[1] * 6800 + data[2] + magic;
