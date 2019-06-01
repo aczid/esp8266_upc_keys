@@ -608,12 +608,19 @@ static void crack(os_event_t *events){
         // local loop copy of sum
         uint64_t lsum = sum;
 
+        // local copy of targets to check
+        uint32_t targets[MAX_CRACK_JOBS];
+        const size_t jobs_checked = jobs_running;
+        for(size_t jobs_idx = 0; jobs_idx < jobs_checked; jobs_idx++){
+            targets[jobs_idx] = jobs_running_queue[jobs_idx]->target;
+        }
+
         // Check serials
         for(uint32_t buf2 = 0; buf2 < MAX2+1; buf2++, lsum++){
             const uint32_t essid_digits = (lsum - (((lsum * MAGIC2) >> 54) - (lsum >> 31)) * 10000000);
             // check results
-            for(size_t jobs_idx = 0; jobs_idx < jobs_running; jobs_idx++){
-                if(essid_digits == jobs_running_queue[jobs_idx]->target){
+            for(size_t jobs_idx = 0; jobs_idx < jobs_checked; jobs_idx++){
+                if(essid_digits == targets[jobs_idx]){
                     crack_job_t * restrict job = jobs_running_queue[jobs_idx];
                     const size_t required_size = PASSWORD_SIZE*(job->passwords_found+TESTED_PREFIXES);
                     job->candidate_passwords = (char*) os_realloc(job->candidate_passwords, required_size);
