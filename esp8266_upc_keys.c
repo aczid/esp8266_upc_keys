@@ -220,6 +220,7 @@ static void free_job(crack_job_t * job){
     }
 }
 
+ICACHE_FLASH_ATTR
 static void move_job_to_finished_queue(crack_job_t *job){
     size_t del_idx = delete_queue_job(job, jobs_running_queue, jobs_running, &jobs_running);
     if(del_idx != -1){
