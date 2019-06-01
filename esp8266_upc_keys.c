@@ -641,7 +641,7 @@ static void crack(os_event_t *events){
         // Count to next block of serials
         if(++buf[1] == (MAX1+1)){
             buf[1] = 0;
-            printf("Cracking %u target(s)... %u/%u\n", jobs_running, buf[0], MAX0);
+            printf("Cracking %u target(s)... %u/%u\n", jobs_checked, buf[0], MAX0);
             if(++buf[0] == (MAX0+1)){
                 buf[0] = 0;
             }
@@ -651,7 +651,7 @@ static void crack(os_event_t *events){
         sum = buf[0] * 2500000 + buf[1] * 6800 + MAGIC_24GHZ;
 
         // Clean up finished jobs
-        for(size_t jobs_idx = 0; jobs_idx < jobs_running; jobs_idx++){
+        for(size_t jobs_idx = 0; jobs_idx < jobs_checked; jobs_idx++){
             crack_job_t * restrict job = jobs_running_queue[jobs_idx];
             if(job && job->start_sum == sum){
                 /*printf("Finished generating passwords for target UPC%07d\n", job->target);*/
