@@ -11,6 +11,7 @@
 #include "user_config.h"
 #include "user_interface.h"
 
+// branch prediction helpers
 #define likely(x)   __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
