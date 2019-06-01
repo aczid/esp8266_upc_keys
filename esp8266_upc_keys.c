@@ -114,7 +114,7 @@ os_event_t user_procTaskQueue[user_procTaskQueueLen];
 
 size_t global_ap_to_test;
 static volatile os_timer_t blink_timer;
-static uint32_t buf[3] = {0, 0, 0};
+static uint32_t buf[2] = {0, 0};
 
 ICACHE_FLASH_ATTR
 static size_t add_queue_job(crack_job_t *job, crack_job_t ** queue, size_t max, size_t *queue_index){
@@ -609,7 +609,7 @@ static void crack(os_event_t *events){
         uint64_t lsum = sum;
 
         // Check serials
-        for(buf[2] = 0; buf[2] < MAX2+1; buf[2]++, lsum++){
+        for(uint32_t buf2 = 0; buf2 < MAX2+1; buf2++, lsum++){
             const uint32_t essid_digits = (lsum - (((lsum * MAGIC2) >> 54) - (lsum >> 31)) * 10000000);
             // check results
             for(size_t jobs_idx = 0; jobs_idx < jobs_running; jobs_idx++){
@@ -622,7 +622,7 @@ static void crack(os_event_t *events){
                     for(size_t prefix_idx = 0; prefix_idx < TESTED_PREFIXES; prefix_idx++){
                         char serial[13] = {0};
                         char * pass = job->candidate_passwords+(PASSWORD_SIZE*(job->passwords_found));
-                        os_sprintf(serial, "%s%d%03d%04d", prefix[prefix_idx], buf[0], buf[1], buf[2]);
+                        os_sprintf(serial, "%s%d%03d%04d", prefix[prefix_idx], buf[0], buf[1], buf2);
                         serial2pass(serial, pass);
                         //printf("  -> WPA2 phrase for '%s' = '%s'\n", serial, pass);
                         job->passwords_found++;
