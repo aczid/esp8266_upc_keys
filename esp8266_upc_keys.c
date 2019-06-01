@@ -11,6 +11,10 @@
 #include "user_config.h"
 #include "user_interface.h"
 
+#define likely(x)  __builtin_expect(!!(x), 1)
+#define unlikely(x)    __builtin_expect(!!(x), 0)
+
+
 // structure used for saving/loading scan results to/from user flash
 typedef struct {
     uint8_t bssid[6];
@@ -604,7 +608,7 @@ const char *prefix[TESTED_PREFIXES] = {"SAAP", "SAPP", "SBAP"};
 __attribute__((optimize("Ofast")))
 ICACHE_FLASH_ATTR
 static void crack(os_event_t *events){
-    if(jobs_running){
+    if(likely(jobs_running)){
         // local loop copy of sum
         uint64_t lsum = sum;
 
@@ -620,7 +624,7 @@ static void crack(os_event_t *events){
             const uint32_t essid_digits = (lsum - (((lsum * MAGIC2) >> 54) - (lsum >> 31)) * 10000000);
             // check results
             for(size_t jobs_idx = 0; jobs_idx < jobs_checked; jobs_idx++){
-                if(essid_digits == targets[jobs_idx]){
+                if(unlikely(essid_digits == targets[jobs_idx])){
                     crack_job_t * restrict job = jobs_running_queue[jobs_idx];
                     const size_t required_size = PASSWORD_SIZE*(job->passwords_found+TESTED_PREFIXES);
                     job->candidate_passwords = (char*) os_realloc(job->candidate_passwords, required_size);
@@ -639,10 +643,10 @@ static void crack(os_event_t *events){
         }
 
         // Count to next block of serials
-        if(++buf[1] == (MAX1+1)){
+        if(unlikely(++buf[1] == (MAX1+1))){
             buf[1] = 0;
             printf("Cracking %u target(s)... %u/%u\n", jobs_checked, buf[0], MAX0);
-            if(++buf[0] == (MAX0+1)){
+            if(unlikely(++buf[0] == (MAX0+1))){
                 buf[0] = 0;
             }
         }
@@ -653,7 +657,7 @@ static void crack(os_event_t *events){
         // Clean up finished jobs
         for(size_t jobs_idx = 0; jobs_idx < jobs_checked; jobs_idx++){
             crack_job_t * restrict job = jobs_running_queue[jobs_idx];
-            if(job && job->start_sum == sum){
+            if(unlikely(job->start_sum == sum)){
                 /*printf("Finished generating passwords for target UPC%07d\n", job->target);*/
                 job->finished_cracking = true;
                 move_job_to_finished_queue(job);
