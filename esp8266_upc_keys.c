@@ -598,8 +598,8 @@ void serial2pass(char* serial, char* pass){
     hash2pass(hash, pass);
 }
 
-#define TESTED_PREFIXES 3
-const char *prefix[TESTED_PREFIXES] = {"SAAP", "SAPP", "SBAP"};
+#define TESTED_PREFIXES 4
+const char *prefix[TESTED_PREFIXES] = {"SAAP", "SAPP", "SBAP", "UAAP"};
 #define PASSWORD_SIZE 8
 
 __attribute__((optimize("Ofast")))
