@@ -535,8 +535,7 @@ void user_init(){
 }
 
 ICACHE_FLASH_ATTR
-inline
-void hash2pass(uint8_t *in_hash, char *out_pass)
+static void hash2pass(uint8_t *in_hash, char *out_pass)
 {
 	uint32_t i, a;
 
@@ -557,7 +556,7 @@ void hash2pass(uint8_t *in_hash, char *out_pass)
 
 
 ICACHE_FLASH_ATTR
-uint32_t mangle(uint32_t *pp)
+static uint32_t mangle(uint32_t *pp)
 {
 	uint32_t a, b;
 
@@ -568,14 +567,14 @@ uint32_t mangle(uint32_t *pp)
 }
 
 ICACHE_FLASH_ATTR
-uint32_t upc_generate_ssid(uint32_t* data, uint32_t magic)
+static uint32_t upc_generate_ssid(uint32_t* data, uint32_t magic)
 {
     uint64_t a = data[0] * 2500000 + data[1] * 6800 + data[2] + magic;
     return a - (((a * MAGIC2) >> 54) - (a >> 31)) * 10000000;
 }
 
 ICACHE_FLASH_ATTR
-void hash_md5(char* in, char* out){
+static void hash_md5(char* in, char* out){
     MD5_CTX ctx;
     MD5_Init(&ctx);
     MD5_Update(&ctx, in, strlen(in));
@@ -583,8 +582,7 @@ void hash_md5(char* in, char* out){
 }
 
 ICACHE_FLASH_ATTR
-inline
-void serial2pass(char* serial, char* pass){
+static void serial2pass(char* serial, char* pass){
     uint8_t hash[17] = {0}, i;
     uint32_t hva[4], hvb[4];
     hash_md5(serial, hash);
