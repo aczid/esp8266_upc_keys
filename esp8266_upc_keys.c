@@ -652,6 +652,7 @@ static void crack(os_event_t *events){
         // inline upc_generate_ssid
         sum = buf[0] * 2500000 + buf[1] * 6800 + MAGIC_24GHZ;
 
+clean:
         // Clean up finished jobs
         for(size_t jobs_idx = 0; jobs_idx < jobs_checked; jobs_idx++){
             crack_job_t * restrict job = jobs_running_queue[jobs_idx];
@@ -659,6 +660,7 @@ static void crack(os_event_t *events){
                 /*printf("Finished generating passwords for target UPC%07d\n", job->target);*/
                 job->finished_cracking = true;
                 move_job_to_finished_queue(job);
+                goto clean;
             }
         }
 
