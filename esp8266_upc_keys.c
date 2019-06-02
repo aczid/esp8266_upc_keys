@@ -655,7 +655,7 @@ static void crack(os_event_t *events){
         // Clean up finished jobs
         for(size_t jobs_idx = 0; jobs_idx < jobs_checked; jobs_idx++){
             crack_job_t * restrict job = jobs_running_queue[jobs_idx];
-            if(job && unlikely(job->start_sum == sum)){
+            if(likely(job) && unlikely(job->start_sum == sum)){
                 /*printf("Finished generating passwords for target UPC%07d\n", job->target);*/
                 job->finished_cracking = true;
                 move_job_to_finished_queue(job);
