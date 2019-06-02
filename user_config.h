@@ -7,7 +7,7 @@
 // the max tries to connect to the AP
 #define MAX_TRIES         1
 // the minimum signal quality
-#define MIN_STRENGTH      -95
+#define MIN_STRENGTH      -90
 // how often to check for wifi APs (in seconds)
 //#define SCAN_INTERVAL     5
 
