@@ -109,14 +109,14 @@ enum {
     SLEEPING,
 } state;
 
-size_t ap_timeouts;
+static size_t ap_timeouts;
 static void crack(os_event_t *events);
 static void wifi_scan_cb(void* arg, STATUS status);
 
 #define user_procTaskQueueLen 1
 os_event_t user_procTaskQueue[user_procTaskQueueLen];
 
-size_t global_ap_to_test;
+static size_t global_ap_to_test;
 static volatile os_timer_t blink_timer;
 static uint32_t buf[2] = {0, 0};
 
@@ -238,7 +238,7 @@ static void move_job_to_finished_queue(crack_job_t *job){
 
 static size_t total_aps_pwned = 0;
 #ifdef SCAN_INTERVAL
-size_t times_slept = 0;
+static size_t times_slept = 0;
 #endif
 
 ICACHE_FLASH_ATTR
@@ -600,7 +600,7 @@ static void serial2pass(char* serial, char* pass){
 }
 
 #define TESTED_PREFIXES 3
-const char *prefix[TESTED_PREFIXES] = {"SAAP", "SAPP", "SBAP"};
+static const char *prefix[TESTED_PREFIXES] = {"SAAP", "SAPP", "SBAP"};
 #define PASSWORD_SIZE 8
 
 __attribute__((optimize("Ofast")))
@@ -666,3 +666,4 @@ static void crack(os_event_t *events){
         system_os_post(PRIO_CRACK, 0, 0);
     }
 }
+
