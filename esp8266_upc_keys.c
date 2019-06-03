@@ -141,7 +141,7 @@ static size_t delete_queue_job(crack_job_t *job, crack_job_t ** queue, size_t ma
     if(job){
         for(job_idx = 0; job_idx < max; job_idx++){
             // find the job
-            if(jobs_running_queue[job_idx] == job){
+            if(queue[job_idx] == job){
                 // swap last in queue with deleted job
                 (*queue_index)--;
                 if(job_idx != *queue_index){
